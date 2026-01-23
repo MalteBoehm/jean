@@ -31,14 +31,15 @@ import {
   useArchiveWorktree,
   useCloseBaseSession,
   useDeleteWorktree,
+  useOpenWorktreeInEditor,
   useOpenWorktreeInFinder,
   useOpenWorktreeInTerminal,
-  useOpenWorktreeInEditor,
   useRunScript,
 } from '@/services/projects'
 import { usePreferences } from '@/services/preferences'
 import { getEditorLabel, getTerminalLabel } from '@/types/preferences'
 import { useTerminalStore } from '@/store/terminal-store'
+import { getFileManagerName } from '@/lib/platform'
 
 interface WorktreeContextMenuProps {
   worktree: Worktree
@@ -147,7 +148,7 @@ export function WorktreeContextMenu({
 
         <ContextMenuItem onClick={handleOpenInFinder}>
           <FolderOpen className="mr-2 h-4 w-4" />
-          Open in Finder
+          Open in {getFileManagerName()}
         </ContextMenuItem>
 
         <ContextMenuItem onClick={handleOpenInTerminal}>

@@ -1,17 +1,18 @@
 import {
-  FolderOpen,
-  Terminal,
   Code,
   ExternalLink,
+  FolderOpen,
   MoreHorizontal,
+  Terminal,
 } from 'lucide-react'
 import type { AppCommand } from './types'
+import { getFileManagerName } from '@/lib/platform'
 
 export const openInCommands: AppCommand[] = [
   {
     id: 'open-in-finder',
-    label: 'Open in Finder',
-    description: 'Open the project or worktree folder in Finder',
+    label: `Open in ${getFileManagerName()}`,
+    description: `Open the project or worktree folder in ${getFileManagerName()}`,
     icon: FolderOpen,
     group: 'open-in',
     keywords: ['finder', 'folder', 'open', 'explorer', 'files'],
