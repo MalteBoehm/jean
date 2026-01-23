@@ -4,7 +4,10 @@ export function DevModeBanner() {
   }
 
   return (
-    <div className="relative flex h-6 w-full shrink-0 items-center justify-center overflow-hidden bg-yellow-400">
+    <div
+      data-tauri-drag-region
+      className="relative flex h-6 w-full shrink-0 items-center justify-center overflow-hidden bg-yellow-400"
+    >
       {/* Left diagonal stripes */}
       <div
         className="absolute left-0 top-0 h-full w-16"
