@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { TitleBar } from '@/components/titlebar/TitleBar'
 import { DevModeBanner } from './DevModeBanner'
 import { LeftSideBar } from './LeftSideBar'
@@ -19,11 +19,16 @@ import { SessionBoardModal } from '@/components/session-board'
 import { GitInitModal } from '@/components/projects/GitInitModal'
 import { QuitConfirmationDialog } from './QuitConfirmationDialog'
 import { Toaster } from 'sonner'
+import { cn } from '@/lib/utils'
 import { useTheme } from '@/hooks/use-theme'
+import { useWindowMaximized } from '@/hooks/use-window-maximized'
 import { useUIStore } from '@/store/ui-store'
 import { useProjectsStore } from '@/store/projects-store'
 import { useMainWindowEventListeners } from '@/hooks/useMainWindowEventListeners'
-import { useCloseSessionOrWorktreeKeybinding } from '@/services/chat'
+import {
+  useCloseSessionOrWorktreeKeybinding,
+  useSessions,
+} from '@/services/chat'
 import { useUIStatePersistence } from '@/hooks/useUIStatePersistence'
 import { useSessionStatePersistence } from '@/hooks/useSessionStatePersistence'
 import { useRestoreLastArchived } from '@/hooks/useRestoreLastArchived'
@@ -34,10 +39,14 @@ import {
   useWorktreePolling,
   type WorktreePollingInfo,
 } from '@/services/git-status'
-import { useWorktree, useProjects, useCreateWorktreeKeybinding } from '@/services/projects'
+import {
+  useCreateWorktreeKeybinding,
+  useProjects,
+  useWorktree,
+} from '@/services/projects'
 import { usePreferences } from '@/services/preferences'
-import { useSessions } from '@/services/chat'
 import { useChatStore } from '@/store/chat-store'
+import { isWindows } from '@/lib/platform'
 
 // Left sidebar resize constraints (pixels)
 const MIN_SIDEBAR_WIDTH = 150
@@ -45,6 +54,7 @@ const MAX_SIDEBAR_WIDTH = 500
 
 export function MainWindow() {
   const { theme } = useTheme()
+  const isMaximized = useWindowMaximized()
   const leftSidebarVisible = useUIStore(state => state.leftSidebarVisible)
   const leftSidebarSize = useUIStore(state => state.leftSidebarSize)
   const setLeftSidebarSize = useUIStore(state => state.setLeftSidebarSize)
@@ -59,7 +69,10 @@ export function MainWindow() {
 
   // Fetch preferences and session data for title
   const { data: preferences } = usePreferences()
-  const { data: sessionsData } = useSessions(selectedWorktreeId ?? null, worktree?.path ?? null)
+  const { data: sessionsData } = useSessions(
+    selectedWorktreeId ?? null,
+    worktree?.path ?? null
+  )
   const activeSessionId = useChatStore(state =>
     selectedWorktreeId ? state.activeSessionIds[selectedWorktreeId] : undefined
   )
@@ -73,7 +86,8 @@ export function MainWindow() {
   // Compute window title based on selected project/worktree
   const windowTitle = useMemo(() => {
     if (!project || !worktree) return 'Jean'
-    const branchSuffix = worktree.branch !== worktree.name ? ` (${worktree.branch})` : ''
+    const branchSuffix =
+      worktree.branch !== worktree.name ? ` (${worktree.branch})` : ''
 
     // Add session name when grouping enabled
     if (preferences?.session_grouping_enabled && activeSessionName) {
@@ -81,7 +95,12 @@ export function MainWindow() {
     }
 
     return `${project.name} › ${worktree.name}${branchSuffix}`
-  }, [project, worktree, preferences?.session_grouping_enabled, activeSessionName])
+  }, [
+    project,
+    worktree,
+    preferences?.session_grouping_enabled,
+    activeSessionName,
+  ])
 
   // Compute polling info - null if no worktree or data not loaded
   const pollingInfo: WorktreePollingInfo | null = useMemo(() => {
@@ -171,8 +190,16 @@ export function MainWindow() {
     [leftSidebarSize, setLeftSidebarSize]
   )
 
+  // On Windows, use smaller border radius and remove it when maximized
+  const roundedClass = isWindows() ? !isMaximized && 'rounded-sm' : 'rounded-xl'
+
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden rounded-xl bg-background">
+    <div
+      className={cn(
+        'flex h-screen w-full flex-col overflow-hidden bg-background',
+        roundedClass
+      )}
+    >
       {/* Dev Mode Banner */}
       <DevModeBanner />
 

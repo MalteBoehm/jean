@@ -84,9 +84,8 @@ pub async fn check_claude_cli_installed(app: AppHandle) -> Result<ClaudeCliStatu
     }
 
     // Try to get the version by running claude --version
-    // Use shell wrapper to bypass macOS security restrictions
-    let shell_cmd = format!("{:?} --version", binary_path);
-    let version = match crate::platform::shell_command(&shell_cmd).output() {
+    // Uses WSL on Windows, shell wrapper on Unix to bypass macOS security restrictions
+    let version = match execute_cli_command(&binary_path, "--version") {
         Ok(output) => {
             if output.status.success() {
                 let version_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -247,8 +246,52 @@ fn get_platform() -> Result<&'static str, String> {
         return Ok("linux-arm64");
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        use crate::platform::shell::is_wsl_available;
+        if !is_wsl_available() {
+            return Err(
+                "WSL is required on Windows to run Claude CLI. \
+                 Install WSL with: wsl --install\n\n\
+                 After installation, restart your computer and try again."
+                    .to_string(),
+            );
+        }
+        return Ok("linux-x64");
+    }
+
     #[allow(unreachable_code)]
     Err("Unsupported platform".to_string())
+}
+
+/// Execute Claude CLI command. Uses WSL on Windows.
+fn execute_cli_command(
+    binary_path: &std::path::Path,
+    args: &str,
+) -> Result<std::process::Output, String> {
+    #[cfg(windows)]
+    {
+        use crate::platform::shell::{is_wsl_available, windows_to_wsl_path, wsl_shell_command};
+
+        if !is_wsl_available() {
+            return Err("WSL is required on Windows to run Claude CLI".to_string());
+        }
+
+        let wsl_path = windows_to_wsl_path(binary_path.to_str().ok_or("Invalid binary path")?);
+        let cmd = format!("'{}' {}", wsl_path, args);
+
+        wsl_shell_command(&cmd)?
+            .output()
+            .map_err(|e| format!("Failed to execute CLI via WSL: {e}"))
+    }
+
+    #[cfg(not(windows))]
+    {
+        let cmd = format!("{:?} {}", binary_path, args);
+        crate::platform::shell_command(&cmd)
+            .output()
+            .map_err(|e| format!("Failed to execute CLI: {e}"))
+    }
 }
 
 /// Fetch the release manifest containing checksums for all platforms
@@ -450,16 +493,12 @@ pub async fn check_claude_cli_auth(app: AppHandle) -> Result<ClaudeAuthStatus, S
 
     // Run a simple non-interactive query to check if authenticated
     // Use --print to avoid interactive mode, and a simple prompt
-    let shell_cmd = format!(
-        "{:?} --print --output-format text -p 'Reply with just the word OK'",
-        binary_path
-    );
+    // Uses WSL on Windows, shell wrapper on Unix
+    let args = "--print --output-format text -p 'Reply with just the word OK'";
 
-    log::trace!("Running auth check: {:?}", shell_cmd);
+    log::trace!("Running auth check with args: {}", args);
 
-    let output = crate::platform::shell_command(&shell_cmd)
-        .output()
-        .map_err(|e| format!("Failed to execute Claude CLI: {e}"))?;
+    let output = execute_cli_command(&binary_path, args)?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
