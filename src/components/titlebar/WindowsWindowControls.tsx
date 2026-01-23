@@ -1,9 +1,9 @@
-import type { HTMLProps } from 'react'
+import { type HTMLProps, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Icons } from './WindowControlIcons'
 import { useCommandContext } from '@/hooks/use-command-context'
 import { executeCommand } from '@/lib/commands'
-import { useWindowMaximized } from '@/hooks/use-window-maximized'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 interface WindowsWindowControlsProps extends HTMLProps<HTMLDivElement> {
   className?: string
@@ -14,7 +14,46 @@ export function WindowsWindowControls({
   ...props
 }: WindowsWindowControlsProps) {
   const context = useCommandContext()
-  const isMaximized = useWindowMaximized()
+  const [isMaximized, setIsMaximized] = useState(false)
+
+  useEffect(() => {
+    const checkMaximized = async () => {
+      try {
+        const appWindow = getCurrentWindow()
+        const maximized = await appWindow.isMaximized()
+        setIsMaximized(maximized)
+      } catch {
+        // Ignore errors
+      }
+    }
+
+    checkMaximized()
+
+    // Listen for resize events to update maximized state
+    const setupResizeListener = async () => {
+      try {
+        const appWindow = getCurrentWindow()
+        const unlisten = await appWindow.onResized(async () => {
+          const maximized = await appWindow.isMaximized()
+          setIsMaximized(maximized)
+        })
+        return unlisten
+      } catch {
+        return null
+      }
+    }
+
+    let unlisten: (() => void) | null = null
+    setupResizeListener().then(fn => {
+      unlisten = fn
+    })
+
+    return () => {
+      if (unlisten) {
+        unlisten()
+      }
+    }
+  }, [])
 
   const handleClose = async () => {
     await executeCommand('window-close', context)
@@ -26,6 +65,7 @@ export function WindowsWindowControls({
 
   const handleMaximizeRestore = async () => {
     await executeCommand('window-toggle-maximize', context)
+    setIsMaximized(!isMaximized)
   }
 
   const buttonBaseClass =

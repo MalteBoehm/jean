@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { MacOSWindowControls } from './MacOSWindowControls'
+import { WindowsWindowControls } from './WindowsWindowControls'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -10,7 +11,13 @@ import { useUIStore } from '@/store/ui-store'
 import { executeCommand, useCommandContext } from '@/lib/commands'
 import { PanelLeft, PanelLeftClose, Settings } from 'lucide-react'
 import { usePreferences } from '@/services/preferences'
-import { formatShortcutDisplay, DEFAULT_KEYBINDINGS } from '@/types/keybindings'
+import { DEFAULT_KEYBINDINGS, formatShortcutDisplay } from '@/types/keybindings'
+
+// Platform detection (using userAgent instead of deprecated platform)
+const isMac =
+  typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent)
+const isWindows =
+  typeof navigator !== 'undefined' && /Windows/.test(navigator.userAgent)
 
 interface TitleBarProps {
   className?: string
@@ -26,6 +33,8 @@ export function TitleBar({ className, title = 'Jean' }: TitleBarProps) {
     (preferences?.keybindings?.toggle_left_sidebar ||
       DEFAULT_KEYBINDINGS.toggle_left_sidebar) as string
   )
+  const settingsShortcut = isMac ? '⌘,' : 'Ctrl+,'
+
   return (
     <div
       data-tauri-drag-region
@@ -34,12 +43,12 @@ export function TitleBar({ className, title = 'Jean' }: TitleBarProps) {
         className
       )}
     >
-      {/* Left side - Window Controls + Left Actions */}
+      {/* Left side - Window Controls (macOS) + Left Actions */}
       <div className="flex items-center">
-        <MacOSWindowControls />
+        {isMac && <MacOSWindowControls />}
 
         {/* Left Action Buttons */}
-        <div className="flex items-center gap-1">
+        <div className={cn('flex items-center gap-1', !isMac && 'pl-2')}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -65,7 +74,9 @@ export function TitleBar({ className, title = 'Jean' }: TitleBarProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                onClick={() => executeCommand('open-preferences', commandContext)}
+                onClick={() =>
+                  executeCommand('open-preferences', commandContext)
+                }
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 text-foreground/70 hover:text-foreground"
@@ -74,7 +85,10 @@ export function TitleBar({ className, title = 'Jean' }: TitleBarProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              Settings <kbd className="ml-1 text-[0.625rem] opacity-60">⌘,</kbd>
+              Settings{' '}
+              <kbd className="ml-1 text-[0.625rem] opacity-60">
+                {settingsShortcut}
+              </kbd>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -86,6 +100,9 @@ export function TitleBar({ className, title = 'Jean' }: TitleBarProps) {
           {title}
         </span>
       </div>
+
+      {/* Right side - Window Controls (Windows) */}
+      {isWindows && <WindowsWindowControls />}
     </div>
   )
 }
