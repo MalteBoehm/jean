@@ -118,6 +118,12 @@ pub struct AppPreferences {
     pub magic_prompts: MagicPrompts, // Customizable prompts for AI-powered features
     #[serde(default = "default_file_edit_mode")]
     pub file_edit_mode: String, // How to edit files: inline (CodeMirror) or external (VS Code, etc.)
+    #[serde(default = "default_quick_access_enabled")]
+    pub quick_access_enabled: bool, // Enable quick access buttons on worktree hover
+    #[serde(default = "default_quick_access_actions")]
+    pub quick_access_actions: Vec<String>, // Which actions to show: terminal, run, editor, finder, terminal_app
+    #[serde(default)]
+    pub quick_access_compact: bool, // Show only icons without labels
 }
 
 fn default_auto_branch_naming() -> bool {
@@ -202,6 +208,14 @@ fn default_syntax_theme_light() -> String {
 
 fn default_file_edit_mode() -> String {
     "external".to_string() // Default to external editor (VS Code, etc.)
+}
+
+fn default_quick_access_enabled() -> bool {
+    true // Enabled by default
+}
+
+fn default_quick_access_actions() -> Vec<String> {
+    vec!["terminal".to_string(), "editor".to_string()]
 }
 
 fn default_disable_thinking_in_non_plan_modes() -> bool {
@@ -439,6 +453,9 @@ impl Default for AppPreferences {
             parallel_execution_prompt_enabled: default_parallel_execution_prompt_enabled(),
             magic_prompts: MagicPrompts::default(),
             file_edit_mode: default_file_edit_mode(),
+            quick_access_enabled: default_quick_access_enabled(),
+            quick_access_actions: default_quick_access_actions(),
+            quick_access_compact: false,
         }
     }
 }

@@ -93,6 +93,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
       vi.mocked(invoke).mockResolvedValueOnce(mockPreferences)
 
@@ -164,6 +167,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
       vi.mocked(invoke).mockResolvedValueOnce(prefsWithOldBinding)
 
@@ -210,6 +216,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -254,6 +263,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -298,6 +310,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -342,6 +357,9 @@ describe('preferences service', () => {
         parallel_execution_prompt_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         file_edit_mode: 'external',
+        quick_access_enabled: true,
+        quick_access_actions: ['terminal', 'editor'],
+        quick_access_compact: false,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
