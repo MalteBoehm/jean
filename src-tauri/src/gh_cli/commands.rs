@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 #[cfg(windows)]
-use crate::platform::shell::wsl_command;
+use crate::platform::shell::{wsl_command, CREATE_NO_WINDOW};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter};
@@ -588,8 +590,11 @@ pub async fn install_gh_cli(app: AppHandle, version: Option<String>) -> Result<(
             emit_progress(&app, "verifying", "Verifying installation...", 80);
 
             // Verify the binary works
-            let version_output = std::process::Command::new(&binary_path)
-                .arg("--version")
+            let mut version_cmd = std::process::Command::new(&binary_path);
+            version_cmd.arg("--version");
+            #[cfg(windows)]
+            version_cmd.creation_flags(CREATE_NO_WINDOW);
+            let version_output = version_cmd
                 .output()
                 .map_err(|e| format!("Failed to verify GitHub CLI: {e}"))?;
 

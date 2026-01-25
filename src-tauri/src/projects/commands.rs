@@ -9,6 +9,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use crate::platform::shell::CREATE_NO_WINDOW;
+
 use super::git;
 use super::git::get_repo_identifier;
 use super::github_issues::{
@@ -3179,6 +3184,9 @@ fn generate_pr_content(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn Claude CLI: {e}"))?;
@@ -3547,6 +3555,9 @@ fn generate_commit_message(app: &AppHandle, prompt: &str) -> Result<CommitMessag
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn Claude CLI: {e}"))?;
@@ -3745,6 +3756,9 @@ fn generate_review(app: &AppHandle, prompt: &str) -> Result<ReviewResponse, Stri
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = cmd
         .spawn()

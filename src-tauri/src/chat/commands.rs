@@ -3,6 +3,11 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use crate::platform::shell::CREATE_NO_WINDOW;
+
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
@@ -2262,6 +2267,9 @@ fn execute_summarization_claude(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn Claude CLI: {e}"))?;
@@ -2785,6 +2793,9 @@ fn execute_digest_claude(app: &AppHandle, prompt: &str) -> Result<SessionDigestR
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = cmd
         .spawn()

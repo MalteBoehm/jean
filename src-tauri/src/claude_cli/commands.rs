@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Write;
 #[cfg(windows)]
-use crate::platform::shell::wsl_command;
+use crate::platform::shell::{wsl_command, CREATE_NO_WINDOW};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
@@ -175,7 +177,11 @@ async fn check_claude_cli_installed_with_mode(
             }
 
             // Get version by running claude.exe --version
-            let version = match Command::new(&binary_path).arg("--version").output() {
+            let mut version_cmd = Command::new(&binary_path);
+            version_cmd.arg("--version");
+            #[cfg(windows)]
+            version_cmd.creation_flags(CREATE_NO_WINDOW);
+            let version = match version_cmd.output() {
                 Ok(output) => {
                     if output.status.success() {
                         let version_str =
@@ -783,14 +789,17 @@ pub async fn check_claude_cli_auth(
             }
 
             // Build args as array for native execution
-            let output = Command::new(&binary_path)
-                .args([
-                    "--print",
-                    "--output-format",
-                    "text",
-                    "-p",
-                    "Reply with just the word OK",
-                ])
+            let mut auth_cmd = Command::new(&binary_path);
+            auth_cmd.args([
+                "--print",
+                "--output-format",
+                "text",
+                "-p",
+                "Reply with just the word OK",
+            ]);
+            #[cfg(windows)]
+            auth_cmd.creation_flags(CREATE_NO_WINDOW);
+            let output = auth_cmd
                 .output()
                 .map_err(|e| format!("Failed to execute Claude CLI: {e}"))?;
 
