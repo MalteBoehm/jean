@@ -4,6 +4,7 @@
 //! survives Jean quitting. The process writes directly to a JSONL file,
 //! which Jean tails for real-time updates.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -157,16 +158,20 @@ pub fn spawn_detached_claude(
     Ok(pid)
 }
 
-/// Spawn Claude CLI as a detached process via WSL (Windows).
+/// Spawn Claude CLI as a detached process via WSL, using a WSL-native CLI path (Windows only).
 ///
-/// On Windows, Claude CLI requires WSL. We invoke `wsl` to run the command
-/// inside the Linux environment, with paths translated to WSL format.
+/// Unlike `spawn_detached_claude`, this function takes a WSL path string directly
+/// for the CLI binary (e.g., `/home/user/.local/share/jean/claude-cli/claude`).
+/// This is required when the CLI is installed in WSL's native ext4 filesystem.
 ///
-/// Returns the PID of the wsl.exe process (killing it terminates WSL children).
+/// The input/output/working_dir paths are still Windows paths and will be converted to WSL paths.
+///
+/// Returns a placeholder PID (0) because we can't reliably track the PID inside WSL.
+/// The caller should use output file content for completion detection.
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_detached_claude(
-    cli_path: &Path,
+pub fn spawn_detached_claude_wsl(
+    wsl_cli_path: &str, // WSL path like /home/user/.local/share/jean/claude-cli/claude
     args: &[String],
     input_file: &Path,
     output_file: &Path,
@@ -177,7 +182,6 @@ pub fn spawn_detached_claude(
     use std::os::windows::process::CommandExt;
 
     // Windows process creation flags
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     // Check WSL availability
@@ -187,9 +191,7 @@ pub fn spawn_detached_claude(
         );
     }
 
-    // Convert Windows paths to WSL paths
-    let wsl_cli_path =
-        windows_to_wsl_path(cli_path.to_str().ok_or("CLI path contains invalid UTF-8")?);
+    // Convert Windows paths to WSL paths (but NOT the cli_path - it's already WSL)
     let wsl_input_path = windows_to_wsl_path(
         input_file
             .to_str()
@@ -220,88 +222,48 @@ pub fn spawn_detached_claude(
         .collect::<Vec<_>>()
         .join(" ");
 
+    // Shell escape all paths
+    let cli_escaped = shell_escape(wsl_cli_path);
+    let input_escaped = shell_escape(&wsl_input_path);
+    let output_escaped = shell_escape(&wsl_output_path);
+    let working_dir_escaped = shell_escape(&wsl_working_dir);
+
     // Build the shell command to run inside WSL
-    // Same structure as Unix, but with WSL paths
-    let shell_cmd = if env_exports.is_empty() {
+    // Use nohup BEFORE bash -c for proper process detachment
+    let inner_cmd = if env_exports.is_empty() {
         format!(
-            "cd '{}' && cat '{}' | nohup '{}' {} >> '{}' 2>&1 & echo $!",
-            wsl_working_dir, wsl_input_path, wsl_cli_path, args_str, wsl_output_path
+            "cd {working_dir_escaped} && cat {input_escaped} | {cli_escaped} {args_str} >> {output_escaped} 2>&1"
         )
     } else {
         format!(
-            "cd '{}' && cat '{}' | {} nohup '{}' {} >> '{}' 2>&1 & echo $!",
-            wsl_working_dir, wsl_input_path, env_exports, wsl_cli_path, args_str, wsl_output_path
+            "cd {working_dir_escaped} && cat {input_escaped} | {env_exports} {cli_escaped} {args_str} >> {output_escaped} 2>&1"
         )
     };
 
-    log::trace!("Spawning detached Claude CLI via WSL");
-    log::trace!("WSL shell command: {shell_cmd}");
+    log::trace!("Spawning detached Claude CLI via WSL (native path)");
+    log::trace!("WSL CLI path: {wsl_cli_path}");
+    log::trace!("WSL shell command: {inner_cmd}");
 
-    // Spawn wsl.exe with the shell command
-    let mut child = Command::new("wsl")
-        .args(["-e", "bash", "-c", &shell_cmd])
+    // Spawn wsl.exe with nohup to properly detach the process
+    // Using `wsl -e nohup bash -c "..."` ensures the process survives wsl.exe exit
+    let child = Command::new("wsl")
+        .args(["-e", "nohup", "bash", "-c", &inner_cmd])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to spawn WSL: {e}"))?;
 
-    // Read the PID from stdout (the `echo $!` part from inside WSL)
-    let stdout = child.stdout.take().ok_or("Failed to capture WSL stdout")?;
-    let reader = BufReader::new(stdout);
+    // The wsl.exe process will exit after spawning nohup, but the Claude process
+    // continues running inside WSL. We return 0 as a placeholder PID since we
+    // can't reliably track the actual Linux PID from Windows.
+    // The caller uses output file content for completion/failure detection.
+    let wsl_pid = child.id();
+    log::trace!("WSL process spawned with Windows PID: {wsl_pid} (placeholder, actual Claude runs inside WSL)");
 
-    let mut wsl_pid_str = String::new();
-    for line in reader.lines() {
-        match line {
-            Ok(l) => {
-                wsl_pid_str = l.trim().to_string();
-                break;
-            }
-            Err(e) => {
-                log::warn!("Error reading PID from WSL: {e}");
-            }
-        }
-    }
-
-    // Capture stderr for error reporting
-    let stderr_handle = child.stderr.take();
-
-    // Wait for the wsl command to finish setting up (returns after backgrounding)
-    let status = child
-        .wait()
-        .map_err(|e| format!("Failed to wait for WSL: {e}"))?;
-
-    if !status.success() {
-        let stderr_output = stderr_handle
-            .map(|stderr| {
-                BufReader::new(stderr)
-                    .lines()
-                    .map_while(Result::ok)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-
-        return Err(format!(
-            "WSL command failed with status: {status}\nStderr: {stderr_output}"
-        ));
-    }
-
-    // The PID we get is from inside WSL (bash's $!)
-    // For process management, we track the Windows wsl.exe PID instead
-    // because killing wsl.exe will terminate its children
-    //
-    // Note: We could potentially use the WSL PID for finer-grained control,
-    // but for simplicity we use a marker approach - we just check if output
-    // file is still being written to
-    let pid: u32 = wsl_pid_str
-        .parse()
-        .map_err(|e| format!("Failed to parse WSL PID '{wsl_pid_str}': {e}"))?;
-
-    log::trace!("Detached Claude CLI spawned via WSL with PID: {pid}");
-
-    Ok(pid)
+    // Return 0 as placeholder - caller relies on output file for status
+    Ok(0)
 }
 
 #[cfg(test)]

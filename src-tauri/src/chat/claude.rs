@@ -436,77 +436,166 @@ pub fn execute_claude_detached(
     disable_thinking_in_non_plan_modes: bool,
     parallel_execution_prompt_enabled: bool,
 ) -> Result<(u32, ClaudeResponse), String> {
-    use super::detached::spawn_detached_claude;
-    use crate::claude_cli::get_cli_binary_path;
-
     log::trace!("Executing Claude CLI (detached) for session: {session_id}");
     log::trace!("Input file: {input_file:?}");
     log::trace!("Output file: {output_file:?}");
     log::trace!("Working directory: {working_dir:?}");
 
-    // Get CLI path
-    let cli_path = get_cli_binary_path(app).map_err(|e| {
-        let error_msg =
-            format!("Failed to get CLI path: {e}. Please complete setup in Settings > Advanced.");
-        log::error!("{error_msg}");
-        let error_event = ErrorEvent {
-            session_id: session_id.to_string(),
-            worktree_id: worktree_id.to_string(),
-            error: error_msg.clone(),
-        };
-        let _ = app.emit("chat:error", &error_event);
-        error_msg
-    })?;
+    // Platform-specific CLI path handling
+    // On Windows, the CLI is installed in WSL's native filesystem and must be accessed via WSL
+    // On Unix, the CLI is installed in the app data directory
+    #[cfg(windows)]
+    let (cli_display_path, pid) = {
+        use crate::claude_cli::get_wsl_cli_binary_path;
+        use super::detached::spawn_detached_claude_wsl;
 
-    if !cli_path.exists() {
-        let error_msg =
-            "Claude CLI not installed. Please complete setup in Settings > Advanced.".to_string();
-        log::error!("{error_msg}");
-        let error_event = ErrorEvent {
-            session_id: session_id.to_string(),
-            worktree_id: worktree_id.to_string(),
-            error: error_msg.clone(),
-        };
-        let _ = app.emit("chat:error", &error_event);
-        return Err(error_msg);
-    }
+        // Get WSL path (e.g., /home/user/.local/share/jean/claude-cli/claude)
+        let wsl_cli_path = get_wsl_cli_binary_path().map_err(|e| {
+            let error_msg =
+                format!("Failed to get WSL CLI path: {e}. Please complete setup in Settings > Advanced.");
+            log::error!("{error_msg}");
+            let error_event = ErrorEvent {
+                session_id: session_id.to_string(),
+                worktree_id: worktree_id.to_string(),
+                error: error_msg.clone(),
+            };
+            let _ = app.emit("chat:error", &error_event);
+            error_msg
+        })?;
 
-    // Build args
-    let (args, env_vars) = build_claude_args(
-        app,
-        session_id,
-        worktree_id,
-        existing_claude_session_id,
-        model,
-        execution_mode,
-        thinking_level,
-        allowed_tools,
-        disable_thinking_in_non_plan_modes,
-        parallel_execution_prompt_enabled,
-    );
+        // Verify CLI exists in WSL
+        let check_cmd = format!("test -x '{}' && echo exists", wsl_cli_path);
+        let output = std::process::Command::new("wsl")
+            .args(["-e", "bash", "-c", &check_cmd])
+            .output()
+            .map_err(|e| format!("Failed to check WSL CLI: {e}"))?;
 
-    // Log the full Claude CLI command for debugging
-    log::debug!(
-        "Claude CLI command: {} {}",
-        cli_path.display(),
-        args.join(" ")
-    );
+        if !String::from_utf8_lossy(&output.stdout).trim().contains("exists") {
+            let error_msg =
+                "Claude CLI not installed in WSL. Please complete setup in Settings > Advanced.".to_string();
+            log::error!("{error_msg}");
+            let error_event = ErrorEvent {
+                session_id: session_id.to_string(),
+                worktree_id: worktree_id.to_string(),
+                error: error_msg.clone(),
+            };
+            let _ = app.emit("chat:error", &error_event);
+            return Err(error_msg);
+        }
 
-    // Convert env_vars to &str references for spawn_detached_claude
-    let env_refs: Vec<(&str, &str)> = env_vars
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
+        // Build args
+        let (args, env_vars) = build_claude_args(
+            app,
+            session_id,
+            worktree_id,
+            existing_claude_session_id,
+            model,
+            execution_mode,
+            thinking_level,
+            allowed_tools,
+            disable_thinking_in_non_plan_modes,
+            parallel_execution_prompt_enabled,
+        );
 
-    // Spawn detached process
-    let pid = spawn_detached_claude(
-        &cli_path,
-        &args,
-        input_file,
-        output_file,
-        working_dir,
-        &env_refs,
-    )?;
+        // Log the full Claude CLI command for debugging
+        log::debug!(
+            "Claude CLI command (WSL): {} {}",
+            wsl_cli_path,
+            args.join(" ")
+        );
+
+        // Convert env_vars to &str references
+        let env_refs: Vec<(&str, &str)> = env_vars
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        // Spawn detached process via WSL
+        let pid = spawn_detached_claude_wsl(
+            &wsl_cli_path,
+            &args,
+            input_file,
+            output_file,
+            working_dir,
+            &env_refs,
+        )?;
+
+        (wsl_cli_path, pid)
+    };
+
+    #[cfg(not(windows))]
+    let (cli_display_path, pid) = {
+        use crate::claude_cli::get_cli_binary_path;
+        use super::detached::spawn_detached_claude;
+
+        // Get CLI path
+        let cli_path = get_cli_binary_path(app).map_err(|e| {
+            let error_msg =
+                format!("Failed to get CLI path: {e}. Please complete setup in Settings > Advanced.");
+            log::error!("{error_msg}");
+            let error_event = ErrorEvent {
+                session_id: session_id.to_string(),
+                worktree_id: worktree_id.to_string(),
+                error: error_msg.clone(),
+            };
+            let _ = app.emit("chat:error", &error_event);
+            error_msg
+        })?;
+
+        if !cli_path.exists() {
+            let error_msg =
+                "Claude CLI not installed. Please complete setup in Settings > Advanced.".to_string();
+            log::error!("{error_msg}");
+            let error_event = ErrorEvent {
+                session_id: session_id.to_string(),
+                worktree_id: worktree_id.to_string(),
+                error: error_msg.clone(),
+            };
+            let _ = app.emit("chat:error", &error_event);
+            return Err(error_msg);
+        }
+
+        // Build args
+        let (args, env_vars) = build_claude_args(
+            app,
+            session_id,
+            worktree_id,
+            existing_claude_session_id,
+            model,
+            execution_mode,
+            thinking_level,
+            allowed_tools,
+            disable_thinking_in_non_plan_modes,
+            parallel_execution_prompt_enabled,
+        );
+
+        // Log the full Claude CLI command for debugging
+        log::debug!(
+            "Claude CLI command: {} {}",
+            cli_path.display(),
+            args.join(" ")
+        );
+
+        // Convert env_vars to &str references for spawn_detached_claude
+        let env_refs: Vec<(&str, &str)> = env_vars
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        // Spawn detached process
+        let pid = spawn_detached_claude(
+            &cli_path,
+            &args,
+            input_file,
+            output_file,
+            working_dir,
+            &env_refs,
+        )?;
+
+        (cli_path.display().to_string(), pid)
+    };
+
+    let _ = cli_display_path; // Used for logging above
 
     log::trace!("Detached Claude CLI spawned with PID: {pid}");
 
@@ -921,7 +1010,9 @@ pub fn tail_claude_output(
         }
 
         // Timeout logic depends on whether we've received Claude output yet
-        let process_alive = is_process_alive(pid);
+        // Note: On Windows/WSL, pid=0 is a placeholder because we can't track the Linux PID.
+        // In that case, we always treat the process as "alive" and rely solely on timeouts.
+        let process_alive = if pid == 0 { true } else { is_process_alive(pid) };
 
         if received_claude_output {
             // After receiving output, use shorter timeout for detecting dead process

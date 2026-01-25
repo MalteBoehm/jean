@@ -60,18 +60,24 @@ fn get_wsl_home() -> Result<String, String> {
     Ok(home)
 }
 
-/// Get the WSL directory where Claude CLI should be installed
+/// Get the WSL directory where Jean's Claude CLI should be installed
 ///
-/// Returns: `~/.local/bin` (inside WSL's native ext4 filesystem)
+/// Returns: `~/.local/share/jean/claude-cli` (inside WSL's native ext4 filesystem)
+///
+/// This is Jean's dedicated directory, separate from any native Windows Claude CLI
+/// installations. This ensures Jean doesn't interfere with user's existing setup.
 #[cfg(windows)]
 pub fn get_wsl_cli_dir() -> Result<String, String> {
     let home = get_wsl_home()?;
-    Ok(format!("{home}/.local/bin"))
+    Ok(format!("{home}/.local/share/jean/claude-cli"))
 }
 
-/// Get the WSL path to the Claude CLI binary
+/// Get the WSL path to Jean's Claude CLI binary
 ///
-/// Returns: `~/.local/bin/claude` (inside WSL's native ext4 filesystem)
+/// Returns: `~/.local/share/jean/claude-cli/claude` (inside WSL's native ext4 filesystem)
+///
+/// This path is inside WSL's native filesystem (ext4), not on the Windows filesystem,
+/// which is required because we need to execute a Linux binary inside WSL.
 #[cfg(windows)]
 pub fn get_wsl_cli_binary_path() -> Result<String, String> {
     let dir = get_wsl_cli_dir()?;
