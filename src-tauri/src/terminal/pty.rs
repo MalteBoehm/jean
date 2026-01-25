@@ -40,25 +40,69 @@ pub fn spawn_terminal(
         })
         .map_err(|e| format!("Failed to open PTY: {e}"))?;
 
-    // Get user's shell
-    let shell = get_user_shell();
-    log::trace!("Using shell: {shell}");
+    // Build command based on platform
+    // On Windows, always use WSL to handle Unix-style paths and commands
+    #[cfg(windows)]
+    let mut cmd = {
+        use crate::platform::shell::{escape_for_bash, parse_wsl_path};
 
-    // Build command - either run a specific command or start interactive shell
-    let mut cmd = if let Some(ref run_command) = command {
-        // Run the command in shell, then keep shell open for inspection
-        let mut c = CommandBuilder::new(&shell);
+        let path_info = parse_wsl_path(&worktree_path);
+        let escaped_path = escape_for_bash(&path_info.path);
+
+        log::trace!(
+            "Using WSL with path: {} (distribution: {:?})",
+            path_info.path,
+            path_info.distribution
+        );
+
+        let mut c = CommandBuilder::new("wsl");
+
+        // Use specific distribution if available (for WSL UNC paths)
+        if let Some(ref distro) = path_info.distribution {
+            c.arg("-d");
+            c.arg(distro);
+        }
+
+        c.arg("-e");
+        c.arg("bash");
         c.arg("-c");
-        // Run the command; if it exits, show message and wait for user
-        // Note: Caller is responsible for properly quoting paths with spaces
-        c.arg(format!(
-            "{run_command}; echo ''; echo '[Command finished. Press Ctrl+D to close]'; cat"
-        ));
+
+        if let Some(ref run_command) = command {
+            // Run command through WSL bash
+            c.arg(format!(
+                "cd '{escaped_path}' && {run_command}; echo ''; echo '[Command finished. Press Ctrl+D to close]'; cat"
+            ));
+        } else {
+            // Interactive shell in WSL
+            c.arg(format!("cd '{escaped_path}' && exec bash"));
+        }
         c
-    } else {
-        CommandBuilder::new(&shell)
     };
-    cmd.cwd(&worktree_path);
+
+    // On non-Windows, use the user's native shell
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let shell = get_user_shell();
+        log::trace!("Using shell: {shell}");
+
+        let mut c = if let Some(ref run_command) = command {
+            // Run the command in shell, then keep shell open for inspection
+            let mut c = CommandBuilder::new(&shell);
+            c.arg("-c");
+            // Run the command; if it exits, show message and wait for user
+            // Note: Caller is responsible for properly quoting paths with spaces
+            c.arg(format!(
+                "{run_command}; echo ''; echo '[Command finished. Press Ctrl+D to close]'; cat"
+            ));
+            c
+        } else {
+            CommandBuilder::new(&shell)
+        };
+        c.cwd(&worktree_path);
+        c
+    };
+
+    // Set environment variables
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("JEAN_WORKTREE_PATH", &worktree_path);
