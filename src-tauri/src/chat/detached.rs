@@ -271,9 +271,10 @@ pub fn spawn_detached_claude_wsl(
 /// This function is for Windows native mode where the CLI is installed as a Windows executable
 /// (or via npm). It runs directly on Windows without going through WSL.
 ///
-/// Returns a placeholder PID (0) because Windows detached processes don't easily allow
-/// tracking the actual PID when using shell execution. The caller should use output file
-/// content for completion detection.
+/// Uses direct process spawning (no shell) with a background thread handling stdin/stdout piping.
+/// This avoids cmd.exe escaping issues and provides the actual PID for process tracking.
+///
+/// Returns the actual PID of the Claude CLI process.
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_detached_claude_native(
@@ -284,90 +285,126 @@ pub fn spawn_detached_claude_native(
     working_dir: &Path,
     env_vars: &[(&str, &str)],
 ) -> Result<u32, String> {
+    use std::fs::OpenOptions;
+    use std::io::{Read, Write};
     use std::os::windows::process::CommandExt;
 
     // Windows process creation flags
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const DETACHED_PROCESS: u32 = 0x00000008;
 
-    // Build args string - Windows cmd.exe uses different escaping than bash
-    // For cmd.exe, we use double quotes and escape inner double quotes
-    let args_str = args
-        .iter()
-        .map(|arg| {
-            // If arg contains spaces or special chars, quote it
-            if arg.contains(' ')
-                || arg.contains('"')
-                || arg.contains('&')
-                || arg.contains('|')
-                || arg.contains('<')
-                || arg.contains('>')
-            {
-                // Escape inner double quotes by doubling them
-                format!("\"{}\"", arg.replace('"', "\"\""))
-            } else {
-                arg.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+    // Read input content upfront
+    let input_content = std::fs::read(input_file)
+        .map_err(|e| format!("Failed to read input file: {e}"))?;
 
-    // Build environment variable string for cmd.exe
-    // Format: set VAR=value && set VAR2=value2 &&
-    let env_prefix = if env_vars.is_empty() {
-        String::new()
-    } else {
-        env_vars
-            .iter()
-            .map(|(k, v)| format!("set {}={}", k, v.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" && ")
-            + " && "
-    };
-
-    // Get paths as strings
-    let cli_path_str = cli_path
-        .to_str()
-        .ok_or("CLI path contains invalid UTF-8")?;
-    let input_path_str = input_file
-        .to_str()
-        .ok_or("Input file path contains invalid UTF-8")?;
-    let output_path_str = output_file
-        .to_str()
-        .ok_or("Output file path contains invalid UTF-8")?;
-
-    // Build the cmd.exe command:
-    // type input.jsonl | claude [args] >> output.jsonl 2>&1
-    //
-    // NOTE: We use `type file | claude` instead of `claude < file` because
-    // Claude CLI with --print requires piped stdin, not file redirection.
-    let shell_cmd = format!(
-        "{env_prefix}type \"{input_path_str}\" | \"{cli_path_str}\" {args_str} >> \"{output_path_str}\" 2>&1"
-    );
-
-    log::trace!("Spawning detached Claude CLI (native Windows)");
-    log::trace!("CLI path: {cli_path_str}");
-    log::trace!("Shell command: {shell_cmd}");
+    log::trace!("Spawning detached Claude CLI (native Windows, direct spawn)");
+    log::trace!("CLI path: {cli_path:?}");
+    log::trace!("Args: {args:?}");
     log::trace!("Working directory: {working_dir:?}");
 
-    // Spawn cmd.exe with the command
-    // Using CREATE_NO_WINDOW | DETACHED_PROCESS to fully detach
-    let child = Command::new("cmd.exe")
-        .args(["/C", &shell_cmd])
+    // Direct spawn - NO SHELL
+    // This avoids cmd.exe escaping issues and gives us the actual PID
+    let mut child = Command::new(cli_path)
+        .args(args)
         .current_dir(working_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .envs(env_vars.iter().map(|(k, v)| (*k, *v)))
+        .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("Failed to spawn cmd.exe: {e}"))?;
+        .map_err(|e| format!("Failed to spawn Claude CLI: {e}"))?;
 
-    let windows_pid = child.id();
-    log::trace!("Native Windows process spawned with PID: {windows_pid} (placeholder, Claude runs as child)");
+    // Get the ACTUAL PID (not a placeholder!)
+    let pid = child.id();
+    log::trace!("Claude CLI spawned with actual PID: {pid}");
 
-    // Return 0 as placeholder - caller relies on output file for status
-    // We could return windows_pid, but the actual Claude process is a child of cmd.exe
-    Ok(0)
+    // Take ownership of handles
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or("Failed to get stdin handle")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or("Failed to get stdout handle")?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or("Failed to get stderr handle")?;
+
+    let output_path = output_file.to_path_buf();
+
+    // Background thread for I/O piping
+    // This thread handles:
+    // 1. Writing input to stdin
+    // 2. Reading stdout and writing to output file
+    // 3. Reading stderr and writing to output file
+    std::thread::spawn(move || {
+        // Write input to stdin
+        if let Err(e) = stdin.write_all(&input_content) {
+            log::error!("Failed to write to Claude stdin: {e}");
+        }
+        drop(stdin); // Signal EOF to Claude CLI
+
+        // Open output file for appending
+        let mut output_file = match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&output_path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("Failed to open output file: {e}");
+                return;
+            }
+        };
+
+        // Read stdout and write to output file
+        let mut buf = [0u8; 8192];
+        loop {
+            match stdout.read(&mut buf) {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    if let Err(e) = output_file.write_all(&buf[..n]) {
+                        log::error!("Failed to write stdout to output file: {e}");
+                        break;
+                    }
+                    // Flush after each write for real-time output
+                    let _ = output_file.flush();
+                }
+                Err(e) => {
+                    log::error!("Failed to read stdout: {e}");
+                    break;
+                }
+            }
+        }
+
+        // Read any remaining stderr
+        loop {
+            match stderr.read(&mut buf) {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    if let Err(e) = output_file.write_all(&buf[..n]) {
+                        log::error!("Failed to write stderr to output file: {e}");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to read stderr: {e}");
+                    break;
+                }
+            }
+        }
+
+        log::trace!("Claude CLI output piping thread finished");
+    });
+
+    // Detach - don't wait for child process
+    // The background thread handles I/O, and the process continues running
+    std::mem::forget(child);
+
+    Ok(pid)
 }
 
 #[cfg(test)]
