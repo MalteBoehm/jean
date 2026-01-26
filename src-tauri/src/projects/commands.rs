@@ -501,6 +501,7 @@ pub async fn create_worktree(
         cached_branch_diff_removed: None,
         cached_base_branch_ahead_count: None,
         cached_base_branch_behind_count: None,
+        cached_worktree_ahead_count: None,
         order: 0, // Placeholder, actual order is set in background thread
         archived_at: None,
     };
@@ -815,6 +816,7 @@ pub async fn create_worktree(
                 cached_branch_diff_removed: None,
                 cached_base_branch_ahead_count: None,
                 cached_base_branch_behind_count: None,
+                cached_worktree_ahead_count: None,
                 order: max_order + 1,
                 archived_at: None,
             };
@@ -935,6 +937,7 @@ pub async fn create_worktree_from_existing_branch(
         cached_branch_diff_removed: None,
         cached_base_branch_ahead_count: None,
         cached_base_branch_behind_count: None,
+        cached_worktree_ahead_count: None,
         order: 0, // Placeholder, actual order is set in background thread
         archived_at: None,
     };
@@ -1150,6 +1153,7 @@ pub async fn create_worktree_from_existing_branch(
                 cached_branch_diff_removed: None,
                 cached_base_branch_ahead_count: None,
                 cached_base_branch_behind_count: None,
+                cached_worktree_ahead_count: None,
                 order: max_order + 1,
                 archived_at: None,
             };
@@ -1372,6 +1376,7 @@ pub async fn create_base_session(app: AppHandle, project_id: String) -> Result<W
         cached_branch_diff_removed: None,
         cached_base_branch_ahead_count: None,
         cached_base_branch_behind_count: None,
+        cached_worktree_ahead_count: None,
         order: 0, // Base sessions are always first
         archived_at: None,
     };
@@ -1671,6 +1676,7 @@ pub async fn import_worktree(
         cached_branch_diff_removed: None,
         cached_base_branch_ahead_count: None,
         cached_base_branch_behind_count: None,
+        cached_worktree_ahead_count: None,
         order: max_order + 1,
         archived_at: None,
     };
@@ -2858,6 +2864,7 @@ pub async fn update_worktree_cached_status(
     branch_diff_removed: Option<u32>,
     base_branch_ahead_count: Option<u32>,
     base_branch_behind_count: Option<u32>,
+    worktree_ahead_count: Option<u32>,
 ) -> Result<(), String> {
     log::trace!("Updating cached status for worktree {worktree_id}");
 
@@ -2899,6 +2906,9 @@ pub async fn update_worktree_cached_status(
     }
     if base_branch_behind_count.is_some() {
         worktree.cached_base_branch_behind_count = base_branch_behind_count;
+    }
+    if worktree_ahead_count.is_some() {
+        worktree.cached_worktree_ahead_count = worktree_ahead_count;
     }
     worktree.cached_status_at = Some(
         std::time::SystemTime::now()
