@@ -557,7 +557,127 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                     }
                 }
             }
-            "result" => {
+            // =================================================================
+            // OpenCode NDJSON format support
+            // OpenCode uses different event types than Claude CLI:
+            //   "text"      → part.text (text content)
+            //   "content"   → part.text (alias for text content)
+            //   "tool_use"  → part.tool, part.callID, part.state.input/output
+            //   "tool_call" → same as tool_use (alias)
+            //   "thinking"  → thinking content
+            //   "result"    → fallback content
+            // =================================================================
+            "text" | "content" => {
+                // OpenCode format: text nested in part.text
+                if let Some(text) = msg
+                    .get("part")
+                    .and_then(|p| p.get("text"))
+                    .and_then(|v| v.as_str())
+                {
+                    if text != "(no content)" {
+                        content.push_str(text);
+                        content_blocks.push(ContentBlock::Text {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+                // Fallback: direct text field
+                else if let Some(text) = msg.get("text").and_then(|v| v.as_str()) {
+                    if text != "(no content)" {
+                        content.push_str(text);
+                        content_blocks.push(ContentBlock::Text {
+                            text: text.to_string(),
+                        });
+                    }
+                }
+                // Fallback: direct content field (string)
+                else if msg_type == "content" {
+                    if let Some(text) = msg.get("content").and_then(|v| v.as_str()) {
+                        if text != "(no content)" {
+                            content.push_str(text);
+                            content_blocks.push(ContentBlock::Text {
+                                text: text.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            "tool_use" | "tool_call" => {
+                // OpenCode format: part.tool (name), part.callID (id),
+                // part.state.input, part.state.output, part.state.status
+                let part = msg.get("part");
+
+                let id = part
+                    .and_then(|p| p.get("callID"))
+                    .or_else(|| msg.get("id"))
+                    .or_else(|| msg.get("tool_use_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let name = part
+                    .and_then(|p| p.get("tool"))
+                    .or_else(|| msg.get("name"))
+                    .or_else(|| msg.get("tool_name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let state = part.and_then(|p| p.get("state"));
+                let input = state
+                    .and_then(|s| s.get("input"))
+                    .or_else(|| msg.get("input"))
+                    .or_else(|| msg.get("arguments"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+
+                // Check if tool already completed (OpenCode sends result in same event)
+                let status = state
+                    .and_then(|s| s.get("status"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let output = if status == "completed" {
+                    state.and_then(|s| s.get("output")).map(|v| {
+                        if let Some(s) = v.as_str() {
+                            if s.len() > 2000 {
+                                format!("{}...(truncated)", &s[..2000])
+                            } else {
+                                s.to_string()
+                            }
+                        } else {
+                            v.to_string()
+                        }
+                    })
+                } else {
+                    None
+                };
+
+                tool_calls.push(ToolCall {
+                    id: id.clone(),
+                    name,
+                    input,
+                    output,
+                    parent_tool_use_id: current_parent_tool_use_id.clone(),
+                });
+
+                content_blocks.push(ContentBlock::ToolUse { tool_call_id: id });
+            }
+
+            "thinking" => {
+                // OpenCode thinking events
+                if let Some(thinking) = msg
+                    .get("thinking")
+                    .or_else(|| msg.get("content"))
+                    .or_else(|| msg.get("part").and_then(|p| p.get("text")))
+                    .and_then(|v| v.as_str())
+                {
+                    content_blocks.push(ContentBlock::Thinking {
+                        thinking: thinking.to_string(),
+                    });
+                }
+            }
+
+            "result" | "done" | "end" => {
                 // Use result if we somehow missed content
                 if content.is_empty() {
                     if let Some(result) = msg.get("result").and_then(|v| v.as_str()) {
@@ -565,6 +685,10 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                     }
                 }
             }
+
+            // step_start, step_finish are workflow markers — no content to extract
+            "step_start" | "step_finish" => {}
+
             _ => {}
         }
     }
@@ -867,4 +991,181 @@ fn now_timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat::types::{RunEntry, RunStatus};
+
+    /// Helper to create a minimal RunEntry for testing
+    fn test_run_entry() -> RunEntry {
+        RunEntry {
+            run_id: "test-run-001".to_string(),
+            user_message_id: "user-msg-001".to_string(),
+            user_message: "test message".to_string(),
+            model: Some("sonnet".to_string()),
+            execution_mode: None,
+            thinking_level: None,
+            effort_level: None,
+            started_at: 1700000000,
+            ended_at: Some(1700000010),
+            status: RunStatus::Completed,
+            assistant_message_id: Some("assistant-msg-001".to_string()),
+            cancelled: false,
+            recovered: false,
+            claude_session_id: None,
+            pid: None,
+            usage: None,
+        }
+    }
+
+    #[test]
+    fn test_parse_opencode_text_type() {
+        let run = test_run_entry();
+        let lines = vec![r#"{"type":"text","part":{"text":"Hello from OpenCode!"}}"#.to_string()];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("Hello from OpenCode!"),
+            "Expected content to contain 'Hello from OpenCode!', got: '{}'",
+            msg.content
+        );
+        assert_eq!(msg.role, MessageRole::Assistant);
+    }
+
+    #[test]
+    fn test_parse_opencode_multiple_text_chunks() {
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"type":"text","part":{"text":"First chunk. "}}"#.to_string(),
+            r#"{"type":"text","part":{"text":"Second chunk."}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("First chunk."),
+            "Missing first chunk in: '{}'",
+            msg.content
+        );
+        assert!(
+            msg.content.contains("Second chunk."),
+            "Missing second chunk in: '{}'",
+            msg.content
+        );
+    }
+
+    #[test]
+    fn test_parse_opencode_tool_use_type() {
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"type":"tool_use","part":{"tool":"Read","callID":"call_001","state":{"input":{"file_path":"/tmp/test.rs"},"output":"file contents here"}}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            !msg.tool_calls.is_empty(),
+            "Expected at least one tool call"
+        );
+        let tc = &msg.tool_calls[0];
+        assert_eq!(tc.name, "Read");
+        assert_eq!(tc.id, "call_001");
+    }
+
+    #[test]
+    fn test_parse_opencode_thinking_type() {
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"type":"thinking","part":{"text":"Let me think about this..."}}"#.to_string(),
+            r#"{"type":"text","part":{"text":"Here is the answer."}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("Here is the answer."),
+            "Expected actual content, got: '{}'",
+            msg.content
+        );
+        // Thinking should be captured in content_blocks with type "thinking"
+        let has_thinking_block = msg
+            .content_blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlock::Thinking { .. }));
+        assert!(
+            has_thinking_block,
+            "Expected a thinking content block, blocks: {:?}",
+            msg.content_blocks
+        );
+    }
+
+    #[test]
+    fn test_parse_opencode_step_events_ignored() {
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"type":"step_start","part":{"stepID":"step1"}}"#.to_string(),
+            r#"{"type":"text","part":{"text":"Actual content"}}"#.to_string(),
+            r#"{"type":"step_finish","part":{"stepID":"step1"}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("Actual content"),
+            "Step events should be skipped, content should work. Got: '{}'",
+            msg.content
+        );
+    }
+
+    #[test]
+    fn test_parse_claude_assistant_format_still_works() {
+        // Regression: ensure Claude CLI format is not broken
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Claude response here"}]}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("Claude response here"),
+            "Claude CLI format should still parse. Got: '{}'",
+            msg.content
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_lines_skipped() {
+        let run = test_run_entry();
+        let lines = vec![
+            "".to_string(),
+            "   ".to_string(),
+            r#"{"type":"text","part":{"text":"content"}}"#.to_string(),
+            "".to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("content"),
+            "Should handle empty lines gracefully. Got: '{}'",
+            msg.content
+        );
+    }
+
+    #[test]
+    fn test_parse_metadata_header_skipped() {
+        let run = test_run_entry();
+        let lines = vec![
+            r#"{"_run_meta":true,"model":"sonnet","mode":"build"}"#.to_string(),
+            r#"{"type":"text","part":{"text":"Real content"}}"#.to_string(),
+        ];
+
+        let msg = parse_run_to_message(&lines, &run).unwrap();
+        assert!(
+            msg.content.contains("Real content"),
+            "Metadata header should be skipped. Got: '{}'",
+            msg.content
+        );
+    }
 }

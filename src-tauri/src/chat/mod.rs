@@ -2,6 +2,7 @@ mod claude;
 mod commands;
 pub mod detached;
 mod naming;
+mod opencode;
 pub mod registry;
 pub mod run_log;
 pub mod storage;

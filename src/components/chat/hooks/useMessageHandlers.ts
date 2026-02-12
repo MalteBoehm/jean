@@ -43,6 +43,7 @@ interface SendMessageMutation {
       disableThinkingForMode?: boolean
       mcpConfig?: string
       customProfileSettings?: string
+      provider?: string
     },
     options?: {
       onSettled?: () => void
@@ -195,7 +196,7 @@ export function useMessageHandlers({
             ? selectedEffortLevelRef.current
             : undefined,
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -365,7 +366,7 @@ export function useMessageHandlers({
             : undefined,
           disableThinkingForMode: true, // Always disable thinking when executing approved plan
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -476,7 +477,7 @@ export function useMessageHandlers({
             : undefined,
           disableThinkingForMode: true, // Always disable thinking when executing approved plan
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -761,7 +762,7 @@ export function useMessageHandlers({
             : undefined,
           allowedTools: [...GIT_ALLOWED_TOOLS, ...allApprovedTools],
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -882,7 +883,7 @@ export function useMessageHandlers({
             ? selectedEffortLevelRef.current
             : undefined,
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -1001,7 +1002,7 @@ Please apply this fix to the file.`
             ? selectedEffortLevelRef.current
             : undefined,
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {
@@ -1113,7 +1114,7 @@ Please apply all these fixes to the respective files.`
             ? selectedEffortLevelRef.current
             : undefined,
           mcpConfig: getMcpConfig(),
-        customProfileSettings: getCustomProfileSettings(),
+          customProfileSettings: getCustomProfileSettings(),
         },
         {
           onSettled: () => {

@@ -189,6 +189,7 @@ export function useQueueProcessor(): void {
             : undefined,
           chromeEnabled: preferences?.chrome_enabled ?? false,
           allowedTools,
+          provider: queuedMsg.provider ?? undefined,
         },
         {
           onSettled: () => {

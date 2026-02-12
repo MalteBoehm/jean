@@ -310,6 +310,12 @@ pub struct Session {
     /// Claude CLI session ID for resuming conversations
     #[serde(default)]
     pub claude_session_id: Option<String>,
+    /// OpenCode CLI session ID for resuming conversations
+    #[serde(default)]
+    pub opencode_session_id: Option<String>,
+    /// AI provider for this session: "claude" (default) or "opencode"
+    #[serde(default = "default_provider_value")]
+    pub provider: String,
     /// Selected model for this session
     #[serde(default)]
     pub selected_model: Option<String>,
@@ -392,6 +398,8 @@ impl Session {
             messages: vec![],
             message_count: None,
             claude_session_id: None,
+            opencode_session_id: None,
+            provider: default_provider_value(),
             selected_model: None,
             selected_thinking_level: None,
             session_naming_completed: false,
@@ -515,6 +523,10 @@ impl WorktreeIndex {
     }
 }
 
+fn default_provider_value() -> String {
+    "claude".to_string()
+}
+
 fn default_version() -> u32 {
     1
 }
@@ -539,6 +551,8 @@ impl SessionMetadata {
             messages: vec![], // Loaded separately from JSONL files
             message_count: Some(self.to_index_entry().message_count),
             claude_session_id: self.claude_session_id.clone(),
+            opencode_session_id: self.opencode_session_id.clone(),
+            provider: self.provider.clone(),
             selected_model: self.selected_model.clone(),
             selected_thinking_level: self.selected_thinking_level.clone(),
             session_naming_completed: self.session_naming_completed,
@@ -567,6 +581,8 @@ impl SessionMetadata {
         self.name = session.name.clone();
         self.order = session.order;
         self.claude_session_id = session.claude_session_id.clone();
+        self.opencode_session_id = session.opencode_session_id.clone();
+        self.provider = session.provider.clone();
         self.selected_model = session.selected_model.clone();
         self.selected_thinking_level = session.selected_thinking_level.clone();
         self.session_naming_completed = session.session_naming_completed;
@@ -805,6 +821,12 @@ pub struct SessionMetadata {
     /// Claude CLI session ID for resuming conversations
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claude_session_id: Option<String>,
+    /// OpenCode CLI session ID for resuming conversations
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opencode_session_id: Option<String>,
+    /// AI provider for this session: "claude" (default) or "opencode"
+    #[serde(default = "default_provider_value")]
+    pub provider: String,
     /// Selected model for this session
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_model: Option<String>,
@@ -927,6 +949,8 @@ impl SessionMetadata {
                 .unwrap_or_default()
                 .as_secs(),
             claude_session_id: None,
+            opencode_session_id: None,
+            provider: default_provider_value(),
             selected_model: None,
             selected_thinking_level: None,
             session_naming_completed: false,

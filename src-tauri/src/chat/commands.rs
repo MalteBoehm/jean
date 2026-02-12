@@ -863,8 +863,10 @@ pub async fn send_chat_message(
     mcp_config: Option<String>,
     chrome_enabled: Option<bool>,
     custom_profile_settings: Option<String>,
+    provider: Option<String>,
 ) -> Result<ChatMessage, String> {
-    log::trace!("Sending chat message for session: {session_id}, worktree: {worktree_id}, model: {model:?}, execution_mode: {execution_mode:?}, thinking: {thinking_level:?}, effort: {effort_level:?}, disable_thinking_for_mode: {disable_thinking_for_mode:?}, allowed_tools: {allowed_tools:?}");
+    let provider = provider.unwrap_or_else(|| "claude".to_string());
+    log::trace!("Sending chat message for session: {session_id}, worktree: {worktree_id}, provider: {provider}, model: {model:?}, execution_mode: {execution_mode:?}, thinking: {thinking_level:?}, effort: {effort_level:?}, disable_thinking_for_mode: {disable_thinking_for_mode:?}, allowed_tools: {allowed_tools:?}");
 
     // Validate inputs
     if message.trim().is_empty() {
@@ -1021,13 +1023,16 @@ pub async fn send_chat_message(
     // Note: User message is stored in NDJSON run entry (run.user_message),
     // not in sessions JSON. Messages are loaded from NDJSON on demand.
 
-    // Build context for Claude
+    // Build context for CLI execution
     let context = ClaudeContext::new(worktree_path.clone());
 
-    // Get the Claude session ID for resumption
+    // Get the session ID for resumption (Claude or OpenCode)
     let claude_session_id = sessions
         .find_session(&session_id)
         .and_then(|s| s.claude_session_id.clone());
+    let opencode_session_id = sessions
+        .find_session(&session_id)
+        .and_then(|s| s.opencode_session_id.clone());
 
     // Start NDJSON run log for crash recovery
     let mut run_log_writer = run_log::start_run(
@@ -1083,64 +1088,121 @@ pub async fn send_chat_message(
         Some(final_allowed_tools)
     };
 
-    // Execute Claude CLI in detached mode
-    // If resume fails with "session not found", retry without the session ID
-    let mut claude_session_id_for_call = claude_session_id.clone();
-    let (pid, claude_response) = loop {
-        log::trace!("About to call execute_claude_detached...");
-
-        match super::claude::execute_claude_detached(
-            &app,
-            &session_id,
-            &worktree_id,
-            &input_file,
-            &output_file,
-            context.worktree_path.as_ref(),
-            claude_session_id_for_call.as_deref(),
-            model.as_deref(),
-            execution_mode.as_deref(),
-            thinking_level.as_ref(),
-            effort_level.as_ref(),
-            allowed_tools_for_cli.as_deref(),
-            disable_thinking_in_non_plan_modes,
-            parallel_execution_prompt.as_deref(),
-            ai_language.as_deref(),
-            mcp_config.as_deref(),
-            chrome,
-            custom_profile_settings.as_deref(),
-        ) {
-            Ok((pid, response)) => {
-                log::trace!("execute_claude_detached succeeded (PID: {pid})");
-                break (pid, response);
-            }
-            Err(e) => {
-                // Check if this is a session not found error and we were trying to resume
-                let is_session_not_found = e.to_lowercase().contains("session")
-                    && (e.to_lowercase().contains("not found")
-                        || e.to_lowercase().contains("invalid")
-                        || e.to_lowercase().contains("expired"));
-
-                if is_session_not_found && claude_session_id_for_call.is_some() {
-                    log::warn!(
-                        "Session not found, clearing stored session ID and retrying: {}",
-                        claude_session_id_for_call.as_deref().unwrap_or("")
-                    );
-
-                    // Clear the invalid session ID from storage (atomic update)
-                    with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
-                        if let Some(session) = sessions.find_session_mut(&session_id) {
-                            session.claude_session_id = None;
-                        }
-                        Ok(())
-                    })?;
-
-                    // Retry without session ID
-                    claude_session_id_for_call = None;
-                    continue;
+    // Execute CLI in detached mode — branch based on provider
+    let (pid, claude_response) = if provider == "opencode" {
+        // ====== OpenCode CLI execution path ======
+        log::trace!("Using OpenCode provider for session: {session_id}");
+        let mut oc_session_id_for_call = opencode_session_id.clone();
+        loop {
+            match super::opencode::execute_opencode_detached(
+                &app,
+                &session_id,
+                &worktree_id,
+                &input_file,
+                &output_file,
+                context.worktree_path.as_ref(),
+                oc_session_id_for_call.as_deref(),
+                model.as_deref(),
+                execution_mode.as_deref(),
+                thinking_level.as_ref(),
+                effort_level.as_ref(),
+                ai_language.as_deref(),
+            ) {
+                Ok((pid, oc_resp)) => {
+                    log::trace!("execute_opencode_detached succeeded (PID: {pid})");
+                    // Convert OpenCodeResponse to ClaudeResponse shape
+                    let claude_resp = super::claude::ClaudeResponse {
+                        content: oc_resp.content,
+                        session_id: oc_resp.session_id,
+                        tool_calls: oc_resp.tool_calls,
+                        content_blocks: oc_resp.content_blocks,
+                        cancelled: oc_resp.cancelled,
+                        usage: oc_resp.usage,
+                    };
+                    break (pid, claude_resp);
                 }
+                Err(e) => {
+                    let is_session_not_found = e.to_lowercase().contains("session")
+                        && (e.to_lowercase().contains("not found")
+                            || e.to_lowercase().contains("invalid")
+                            || e.to_lowercase().contains("expired"));
 
-                log::error!("execute_claude_detached FAILED: {e}");
-                return Err(e);
+                    if is_session_not_found && oc_session_id_for_call.is_some() {
+                        log::warn!(
+                            "OpenCode session not found, clearing and retrying: {}",
+                            oc_session_id_for_call.as_deref().unwrap_or("")
+                        );
+                        with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+                            if let Some(session) = sessions.find_session_mut(&session_id) {
+                                session.opencode_session_id = None;
+                            }
+                            Ok(())
+                        })?;
+                        oc_session_id_for_call = None;
+                        continue;
+                    }
+
+                    log::error!("execute_opencode_detached FAILED: {e}");
+                    return Err(e);
+                }
+            }
+        }
+    } else {
+        // ====== Claude CLI execution path (default) ======
+        let mut claude_session_id_for_call = claude_session_id.clone();
+        loop {
+            log::trace!("About to call execute_claude_detached...");
+
+            match super::claude::execute_claude_detached(
+                &app,
+                &session_id,
+                &worktree_id,
+                &input_file,
+                &output_file,
+                context.worktree_path.as_ref(),
+                claude_session_id_for_call.as_deref(),
+                model.as_deref(),
+                execution_mode.as_deref(),
+                thinking_level.as_ref(),
+                effort_level.as_ref(),
+                allowed_tools_for_cli.as_deref(),
+                disable_thinking_in_non_plan_modes,
+                parallel_execution_prompt.as_deref(),
+                ai_language.as_deref(),
+                mcp_config.as_deref(),
+                chrome,
+                custom_profile_settings.as_deref(),
+            ) {
+                Ok((pid, response)) => {
+                    log::trace!("execute_claude_detached succeeded (PID: {pid})");
+                    break (pid, response);
+                }
+                Err(e) => {
+                    let is_session_not_found = e.to_lowercase().contains("session")
+                        && (e.to_lowercase().contains("not found")
+                            || e.to_lowercase().contains("invalid")
+                            || e.to_lowercase().contains("expired"));
+
+                    if is_session_not_found && claude_session_id_for_call.is_some() {
+                        log::warn!(
+                            "Session not found, clearing stored session ID and retrying: {}",
+                            claude_session_id_for_call.as_deref().unwrap_or("")
+                        );
+
+                        with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+                            if let Some(session) = sessions.find_session_mut(&session_id) {
+                                session.claude_session_id = None;
+                            }
+                            Ok(())
+                        })?;
+
+                        claude_session_id_for_call = None;
+                        continue;
+                    }
+
+                    log::error!("execute_claude_detached FAILED: {e}");
+                    return Err(e);
+                }
             }
         }
     };
@@ -1166,11 +1228,15 @@ pub async fn send_chat_message(
             log::warn!("Failed to cancel run log: {e}");
         }
 
-        // Atomically update session (store claude_session_id, remove last user message if present)
+        // Atomically update session (store session_id for provider, remove last user message if present)
         with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
             if let Some(session) = sessions.find_session_mut(&session_id) {
                 if !claude_session_id_for_log.is_empty() {
-                    session.claude_session_id = Some(claude_session_id_for_log.clone());
+                    if provider == "opencode" {
+                        session.opencode_session_id = Some(claude_session_id_for_log.clone());
+                    } else {
+                        session.claude_session_id = Some(claude_session_id_for_log.clone());
+                    }
                 }
                 // Remove user message (undo send) - allows frontend to restore to input field
                 if session
@@ -1246,12 +1312,16 @@ pub async fn send_chat_message(
         }
     }
 
-    // Atomically save session metadata (claude_session_id for resumption)
+    // Atomically save session metadata (session_id for resumption)
     // Note: Messages are NOT saved here - they're in NDJSON only
     with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
         if let Some(session) = sessions.find_session_mut(&session_id) {
             if !claude_session_id_for_log.is_empty() {
-                session.claude_session_id = Some(claude_session_id_for_log.clone());
+                if provider == "opencode" {
+                    session.opencode_session_id = Some(claude_session_id_for_log.clone());
+                } else {
+                    session.claude_session_id = Some(claude_session_id_for_log.clone());
+                }
             }
         }
         Ok(())

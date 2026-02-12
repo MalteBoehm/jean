@@ -37,6 +37,11 @@ import {
   Zap,
 } from 'lucide-react'
 import { openExternal } from '@/lib/platform'
+import {
+  useOpenCodeInstalled,
+  useOpenCodeModels,
+  type OpenCodeModel,
+} from '@/services/opencode'
 import { Kbd } from '@/components/ui/kbd'
 import {
   Tooltip,
@@ -187,7 +192,7 @@ interface ChatToolbarProps {
   hasPendingAttachments: boolean
   hasInputValue: boolean
   executionMode: ExecutionMode
-  selectedModel: ClaudeModel
+  selectedModel: string
   selectedProvider: string | null // null = default (Anthropic), or profile name
   selectedThinkingLevel: ThinkingLevel
   selectedEffortLevel: EffortLevel
@@ -235,7 +240,7 @@ interface ChatToolbarProps {
   onResolveConflicts: () => void
   hasOpenPr: boolean
   onSetDiffRequest: (request: DiffRequest) => void
-  onModelChange: (model: ClaudeModel) => void
+  onModelChange: (model: string) => void
   onProviderChange: (provider: string | null) => void
   customCliProfiles: CustomCliProfile[]
   onThinkingLevelChange: (level: ThinkingLevel) => void
@@ -372,6 +377,15 @@ export const ChatToolbar = memo(function ChatToolbar({
   onToggleMcpServer,
   onOpenProjectSettings,
 }: ChatToolbarProps) {
+  // Detect OpenCode CLI availability
+  const { data: openCodeStatus } = useOpenCodeInstalled()
+  const isOpenCodeInstalled = openCodeStatus?.installed ?? false
+  const hasProviderOptions = customCliProfiles.length > 0 || isOpenCodeInstalled
+
+  // Fetch OpenCode models when OpenCode provider is active
+  const isOpenCodeProvider = selectedProvider === 'opencode'
+  const { data: openCodeModels } = useOpenCodeModels(isOpenCodeProvider)
+
   // MCP health check — triggered when dropdown opens, shared cache with settings pane
   const {
     data: healthResult,
@@ -395,24 +409,30 @@ export const ChatToolbar = memo(function ChatToolbar({
     return enabledMcpServers.filter(name => availableNames.has(name)).length
   }, [availableMcpServers, enabledMcpServers])
 
-  // For custom providers: show generic tier names (Opus/Sonnet/Haiku) without version numbers,
-  // and drop Opus 4.5 (providers only have one opus-tier model)
-  const filteredModelOptions = useMemo(
-    () =>
-      selectedProvider
-        ? [
-            { value: 'opus' as ClaudeModel, label: 'Opus' },
-            { value: 'sonnet' as ClaudeModel, label: 'Sonnet' },
-            { value: 'haiku' as ClaudeModel, label: 'Haiku' },
-          ]
-        : MODEL_OPTIONS,
-    [selectedProvider]
-  )
+  // Model options: swap to OpenCode models when provider is 'opencode',
+  // generic tier names for other custom providers, or full Claude model list for default
+  const filteredModelOptions: { value: string; label: string }[] =
+    useMemo(() => {
+      if (isOpenCodeProvider && openCodeModels?.length) {
+        return openCodeModels.map((m: OpenCodeModel) => ({
+          value: m.id,
+          label: m.name || m.id.split('/').pop() || m.id,
+        }))
+      }
+      if (selectedProvider) {
+        return [
+          { value: 'opus', label: 'Opus' },
+          { value: 'sonnet', label: 'Sonnet' },
+          { value: 'haiku', label: 'Haiku' },
+        ]
+      }
+      return MODEL_OPTIONS
+    }, [selectedProvider, isOpenCodeProvider, openCodeModels])
 
   // Memoize callbacks to prevent Select re-renders
   const handleModelChange = useCallback(
     (value: string) => {
-      onModelChange(value as ClaudeModel)
+      onModelChange(value)
     },
     [onModelChange]
   )
@@ -421,12 +441,17 @@ export const ChatToolbar = memo(function ChatToolbar({
     (value: string) => {
       const provider = value === 'default' ? null : value
       onProviderChange(provider)
-      // Auto-switch from Opus 4.6 when selecting a custom provider (it's Anthropic-only)
-      if (provider && selectedModel === 'opus-4.5') {
-        onModelChange('opus' as ClaudeModel)
+      if (provider === 'opencode') {
+        // Auto-select first OpenCode model when switching to OpenCode provider
+        if (openCodeModels?.length) {
+          onModelChange(openCodeModels[0]!.id)
+        }
+      } else if (provider && selectedModel === 'opus-4.5') {
+        // Auto-switch from Opus 4.6 when selecting a custom provider (it's Anthropic-only)
+        onModelChange('opus')
       }
     },
-    [onProviderChange, onModelChange, selectedModel]
+    [onProviderChange, onModelChange, selectedModel, openCodeModels]
   )
 
   const handleThinkingLevelChange = useCallback(
@@ -769,13 +794,15 @@ export const ChatToolbar = memo(function ChatToolbar({
             <DropdownMenuSeparator />
 
             {/* Provider selector as submenu */}
-            {customCliProfiles.length > 0 && (
+            {hasProviderOptions && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Sparkles className="mr-2 h-4 w-4" />
                   <span>Provider</span>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {selectedProvider ?? 'Default'}
+                    {selectedProvider === 'opencode'
+                      ? 'OpenCode'
+                      : (selectedProvider ?? 'Default')}
                   </span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -786,15 +813,27 @@ export const ChatToolbar = memo(function ChatToolbar({
                     <DropdownMenuRadioItem value="default">
                       Default
                     </DropdownMenuRadioItem>
-                    <DropdownMenuSeparator />
-                    {customCliProfiles.map(profile => (
-                      <DropdownMenuRadioItem
-                        key={profile.name}
-                        value={profile.name}
-                      >
-                        {profile.name}
-                      </DropdownMenuRadioItem>
-                    ))}
+                    {isOpenCodeInstalled && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuRadioItem value="opencode">
+                          OpenCode
+                        </DropdownMenuRadioItem>
+                      </>
+                    )}
+                    {customCliProfiles.length > 0 && (
+                      <>
+                        <DropdownMenuSeparator />
+                        {customCliProfiles.map(profile => (
+                          <DropdownMenuRadioItem
+                            key={profile.name}
+                            value={profile.name}
+                          >
+                            {profile.name}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </>
+                    )}
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -806,7 +845,10 @@ export const ChatToolbar = memo(function ChatToolbar({
                 <Sparkles className="mr-2 h-4 w-4" />
                 <span>Model</span>
                 <span className="ml-auto text-xs text-muted-foreground">
-                  {filteredModelOptions.find(o => o.value === selectedModel)?.label}
+                  {
+                    filteredModelOptions.find(o => o.value === selectedModel)
+                      ?.label
+                  }
                 </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
@@ -1218,8 +1260,8 @@ export const ChatToolbar = memo(function ChatToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Provider selector - desktop only, shown when profiles exist */}
-        {customCliProfiles.length > 0 && (
+        {/* Provider selector - desktop only, shown when providers exist */}
+        {hasProviderOptions && (
           <>
             <div className="hidden @md:block h-4 w-px bg-border/50" />
             <DropdownMenu>
@@ -1230,11 +1272,17 @@ export const ChatToolbar = memo(function ChatToolbar({
                   className={cn(
                     'hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                     selectedProvider
-                      ? 'border border-blue-500/50 bg-blue-500/10 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/10 dark:text-blue-400'
+                      ? selectedProvider === 'opencode'
+                        ? 'border border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-400'
+                        : 'border border-blue-500/50 bg-blue-500/10 text-blue-700 dark:border-blue-400/40 dark:bg-blue-500/10 dark:text-blue-400'
                       : 'text-muted-foreground'
                   )}
                 >
-                  <span>{selectedProvider ?? 'Default'}</span>
+                  <span>
+                    {selectedProvider === 'opencode'
+                      ? 'OpenCode'
+                      : (selectedProvider ?? 'Default')}
+                  </span>
                   <ChevronDown className="h-3 w-3 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
@@ -1246,15 +1294,27 @@ export const ChatToolbar = memo(function ChatToolbar({
                   <DropdownMenuRadioItem value="default">
                     Default
                   </DropdownMenuRadioItem>
-                  <DropdownMenuSeparator />
-                  {customCliProfiles.map(profile => (
-                    <DropdownMenuRadioItem
-                      key={profile.name}
-                      value={profile.name}
-                    >
-                      {profile.name}
-                    </DropdownMenuRadioItem>
-                  ))}
+                  {isOpenCodeInstalled && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuRadioItem value="opencode">
+                        OpenCode
+                      </DropdownMenuRadioItem>
+                    </>
+                  )}
+                  {customCliProfiles.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      {customCliProfiles.map(profile => (
+                        <DropdownMenuRadioItem
+                          key={profile.name}
+                          value={profile.name}
+                        >
+                          {profile.name}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </>
+                  )}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>

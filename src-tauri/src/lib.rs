@@ -13,6 +13,7 @@ mod chat;
 mod claude_cli;
 mod gh_cli;
 pub mod http_server;
+mod opencode_cli;
 mod platform;
 mod projects;
 mod terminal;
@@ -1899,6 +1900,9 @@ pub fn run() {
             claude_cli::check_claude_cli_auth,
             claude_cli::get_available_cli_versions,
             claude_cli::install_claude_cli,
+            // OpenCode CLI management commands
+            opencode_cli::check_opencode_installed,
+            opencode_cli::list_opencode_models,
             // GitHub CLI management commands
             gh_cli::check_gh_cli_installed,
             gh_cli::check_gh_cli_auth,

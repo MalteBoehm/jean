@@ -551,6 +551,7 @@ pub async fn dispatch_command(
             let chrome_enabled: Option<bool> = field_opt(&args, "chromeEnabled", "chrome_enabled")?;
             let custom_profile_settings: Option<String> =
                 field_opt(&args, "customProfileSettings", "custom_profile_settings")?;
+            let provider: Option<String> = from_field_opt(&args, "provider")?;
             let result = crate::chat::send_chat_message(
                 app.clone(),
                 session_id,
@@ -568,6 +569,7 @@ pub async fn dispatch_command(
                 mcp_config,
                 chrome_enabled,
                 custom_profile_settings,
+                provider,
             )
             .await?;
             to_value(result)
@@ -1338,6 +1340,15 @@ pub async fn dispatch_command(
             let version: Option<String> = from_field_opt(&args, "version")?;
             crate::claude_cli::install_claude_cli(app.clone(), version).await?;
             Ok(Value::Null)
+        }
+        // OpenCode CLI commands
+        "check_opencode_installed" => {
+            let result = crate::opencode_cli::check_opencode_installed().await?;
+            to_value(result)
+        }
+        "list_opencode_models" => {
+            let result = crate::opencode_cli::list_opencode_models().await?;
+            to_value(result)
         }
         "check_gh_cli_installed" => {
             let result = crate::gh_cli::check_gh_cli_installed(app.clone()).await?;

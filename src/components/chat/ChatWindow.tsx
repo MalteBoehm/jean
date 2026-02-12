@@ -50,7 +50,6 @@ import {
   useChatStore,
   DEFAULT_MODEL,
   DEFAULT_THINKING_LEVEL,
-  type ClaudeModel,
 } from '@/store/chat-store'
 import { usePreferences, useSavePreferences } from '@/services/preferences'
 import {
@@ -418,10 +417,10 @@ export function ChatWindow({
   const { data: runScript } = useRunScript(activeWorktreePath ?? null)
 
   // Per-session model selection, falls back to preferences default
-  const defaultModel: ClaudeModel =
-    (preferences?.selected_model as ClaudeModel) ?? DEFAULT_MODEL
-  const selectedModel: ClaudeModel =
-    (session?.selected_model as ClaudeModel) ?? defaultModel
+  const defaultModel: string =
+    (preferences?.selected_model as string) ?? DEFAULT_MODEL
+  const selectedModel: string =
+    (session?.selected_model as string) ?? defaultModel
 
   // Per-session provider selection, falls back to preferences default
   const defaultProvider = preferences?.default_provider ?? null
@@ -996,13 +995,17 @@ export function ChatWindow({
   const resolveCustomProfile = useCallback(
     (model: string, provider: string | null) => {
       if (!provider)
-        return { model, customProfileSettings: undefined }
+        return { model, customProfileSettings: undefined, provider: undefined }
+      // OpenCode provider — pass directly without custom profile resolution
+      if (provider === 'opencode')
+        return { model, customProfileSettings: undefined, provider: 'opencode' }
       const profile = preferences?.custom_cli_profiles?.find(
         p => p.name === provider
       )
       return {
         model,
         customProfileSettings: profile?.settings_json,
+        provider: undefined, // custom CLI profiles go through customProfileSettings, not provider
       }
     },
     [preferences?.custom_cli_profiles]
@@ -1129,6 +1132,7 @@ export function ChatWindow({
           effortLevel: queuedMsg.effortLevel,
           mcpConfig: queuedMsg.mcpConfig,
           customProfileSettings: resolved.customProfileSettings,
+          provider: resolved.provider,
           parallelExecutionPrompt:
             preferences?.parallel_execution_prompt_enabled
               ? (preferences.magic_prompts?.parallel_execution ??
@@ -1216,6 +1220,7 @@ export function ChatWindow({
           message,
           model: diffResolved.model,
           customProfileSettings: diffResolved.customProfileSettings,
+          provider: diffResolved.provider,
           executionMode: 'build',
           thinkingLevel,
           disableThinkingForMode: thinkingLevel !== 'off' && !hasManualOverride,
@@ -2213,6 +2218,7 @@ export function ChatWindow({
             message,
             model: fixResolved.model,
             customProfileSettings: fixResolved.customProfileSettings,
+            provider: fixResolved.provider,
             executionMode: 'build', // Always use build mode for fixes
             thinkingLevel: thinkingLvl,
             // Build mode: disable thinking if preference enabled and no manual override

@@ -1176,6 +1176,7 @@ export function useSendMessage() {
       mcpConfig,
       chromeEnabled,
       customProfileSettings,
+      provider,
     }: {
       sessionId: string
       worktreeId: string
@@ -1192,6 +1193,7 @@ export function useSendMessage() {
       mcpConfig?: string
       chromeEnabled?: boolean
       customProfileSettings?: string
+      provider?: string
     }): Promise<ChatMessage> => {
       if (!isTauri()) {
         throw new Error('Not in Tauri context')
@@ -1227,6 +1229,7 @@ export function useSendMessage() {
         mcpConfig,
         chromeEnabled,
         customProfileSettings,
+        provider,
       })
       logger.info('Chat message sent', { responseId: response.id })
       return response

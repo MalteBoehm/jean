@@ -526,9 +526,14 @@ function DiffView({
 function getToolDisplay(toolCall: ToolCall): ToolDisplay {
   const input = toolCall.input as Record<string, unknown>
 
-  switch (toolCall.name) {
-    case 'Read': {
-      const filePath = input.file_path as string | undefined
+  // Normalize tool name: OpenCode uses lowercase (read, bash, glob),
+  // Claude uses PascalCase (Read, Bash, Glob)
+  const normalizedName = toolCall.name.toLowerCase()
+
+  switch (normalizedName) {
+    case 'read': {
+      // Claude: file_path, OpenCode: filePath
+      const filePath = (input.file_path ?? input.filePath) as string | undefined
       const filename = filePath ? getFilename(filePath) : filePath
       const limit = input.limit as number | undefined
       const offset = input.offset as number | undefined
@@ -544,11 +549,11 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Edit': {
-      const filePath = input.file_path as string | undefined
+    case 'edit': {
+      const filePath = (input.file_path ?? input.filePath) as string | undefined
       const filename = filePath ? getFilename(filePath) : filePath
-      const oldString = input.old_string as string | undefined
-      const newString = input.new_string as string | undefined
+      const oldString = (input.old_string ?? input.oldString) as string | undefined
+      const newString = (input.new_string ?? input.newString) as string | undefined
       return {
         icon: <Edit className="h-4 w-4 shrink-0" />,
         label: 'Edit',
@@ -566,8 +571,8 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Write': {
-      const filePath = input.file_path as string | undefined
+    case 'write': {
+      const filePath = (input.file_path ?? input.filePath) as string | undefined
       const filename = filePath ? getFilename(filePath) : filePath
       const content = input.content as string | undefined
       return {
@@ -581,10 +586,9 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Bash': {
+    case 'bash': {
       const command = input.command as string | undefined
       const description = input.description as string | undefined
-      // Truncate long commands for display
       const truncatedCommand =
         command && command.length > 50
           ? command.substring(0, 50) + '...'
@@ -599,7 +603,7 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Grep': {
+    case 'grep': {
       const pattern = input.pattern as string | undefined
       const path = input.path as string | undefined
       const glob = input.glob as string | undefined
@@ -613,7 +617,7 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Glob': {
+    case 'glob': {
       const pattern = input.pattern as string | undefined
       const path = input.path as string | undefined
       return {
@@ -624,7 +628,7 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'Task': {
+    case 'task': {
       const subagentType = input.subagent_type as string | undefined
       const description = input.description as string | undefined
       const prompt = input.prompt as string | undefined
@@ -636,8 +640,8 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
-    case 'WebFetch':
-    case 'WebSearch': {
+    case 'webfetch':
+    case 'websearch': {
       const url = input.url as string | undefined
       const query = input.query as string | undefined
       const prompt = input.prompt as string | undefined
@@ -653,9 +657,10 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
 
     default: {
       const isMcpTool = toolCall.name.startsWith('mcp__')
+      // For OpenCode tools or any other provider tools, show the name cleanly
       return {
         icon: <Terminal className="h-4 w-4 shrink-0" />,
-        label: isMcpTool ? toolCall.name : `${toolCall.name} (unhandled tool)`,
+        label: isMcpTool ? toolCall.name : toolCall.name,
         detail: undefined,
         expandedContent: JSON.stringify(input, null, 2),
       }
