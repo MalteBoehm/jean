@@ -114,11 +114,11 @@ export const THINKING_LEVEL_OPTIONS: {
   label: string
   tokens: string
 }[] = [
-  { value: 'off', label: 'Off', tokens: 'Disabled' },
-  { value: 'think', label: 'Think', tokens: '4K' },
-  { value: 'megathink', label: 'Megathink', tokens: '10K' },
-  { value: 'ultrathink', label: 'Ultrathink', tokens: '32K' },
-]
+    { value: 'off', label: 'Off', tokens: 'Disabled' },
+    { value: 'think', label: 'Think', tokens: '4K' },
+    { value: 'megathink', label: 'Megathink', tokens: '10K' },
+    { value: 'ultrathink', label: 'Ultrathink', tokens: '32K' },
+  ]
 
 /** Effort level options for Opus 4.6 adaptive thinking */
 export const EFFORT_LEVEL_OPTIONS: {
@@ -126,11 +126,11 @@ export const EFFORT_LEVEL_OPTIONS: {
   label: string
   description: string
 }[] = [
-  { value: 'low', label: 'Low', description: 'Minimal' },
-  { value: 'medium', label: 'Medium', description: 'Moderate' },
-  { value: 'high', label: 'High', description: 'Deep' },
-  { value: 'max', label: 'Max', description: 'No limits' },
-]
+    { value: 'low', label: 'Low', description: 'Minimal' },
+    { value: 'medium', label: 'Medium', description: 'Moderate' },
+    { value: 'high', label: 'High', description: 'Deep' },
+    { value: 'max', label: 'Max', description: 'No limits' },
+  ]
 
 /** Get display label and color for PR status */
 function getPrStatusDisplay(status: PrDisplayStatus): {
@@ -418,6 +418,10 @@ export const ChatToolbar = memo(function ChatToolbar({
           value: m.id,
           label: m.name || m.id.split('/').pop() || m.id,
         }))
+      }
+      if (isOpenCodeProvider) {
+        // OpenCode selected but models not loaded yet — don't show Claude options
+        return [{ value: '', label: 'Loading models…', disabled: true }]
       }
       if (selectedProvider) {
         return [
@@ -878,8 +882,8 @@ export const ChatToolbar = memo(function ChatToolbar({
                     {thinkingOverrideActive
                       ? 'Off'
                       : EFFORT_LEVEL_OPTIONS.find(
-                          o => o.value === selectedEffortLevel
-                        )?.label}
+                        o => o.value === selectedEffortLevel
+                      )?.label}
                   </span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -910,8 +914,8 @@ export const ChatToolbar = memo(function ChatToolbar({
                     {thinkingOverrideActive
                       ? 'Off'
                       : THINKING_LEVEL_OPTIONS.find(
-                          o => o.value === selectedThinkingLevel
-                        )?.label}
+                        o => o.value === selectedThinkingLevel
+                      )?.label}
                   </span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -996,126 +1000,126 @@ export const ChatToolbar = memo(function ChatToolbar({
         {(loadedIssueCount > 0 ||
           loadedPRCount > 0 ||
           loadedContextCount > 0) && (
-          <>
-            <div className="hidden @md:block h-4 w-px bg-border/50" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
-                >
-                  <CircleDot className="h-3.5 w-3.5" />
-                  <span>
-                    {loadedIssueCount > 0 &&
-                      `${loadedIssueCount} Issue${loadedIssueCount > 1 ? 's' : ''}`}
-                    {loadedIssueCount > 0 &&
-                      (loadedPRCount > 0 || loadedContextCount > 0) &&
-                      ', '}
-                    {loadedPRCount > 0 &&
-                      `${loadedPRCount} PR${loadedPRCount > 1 ? 's' : ''}`}
-                    {loadedPRCount > 0 && loadedContextCount > 0 && ', '}
-                    {loadedContextCount > 0 &&
-                      `${loadedContextCount} Context${loadedContextCount > 1 ? 's' : ''}`}
-                  </span>
-                  <ChevronDown className="h-3 w-3 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
-                {/* Issues section */}
-                {loadedIssueContexts.length > 0 && (
-                  <>
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      Issues
-                    </DropdownMenuLabel>
-                    {loadedIssueContexts.map(ctx => (
-                      <DropdownMenuItem
-                        key={ctx.number}
-                        onClick={() => handleViewIssue(ctx)}
-                      >
-                        <CircleDot className="h-4 w-4 text-green-500" />
-                        <span className="truncate">
-                          #{ctx.number} {ctx.title}
-                        </span>
-                        <button
-                          className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
-                          onClick={e => {
-                            e.stopPropagation()
-                            openExternal(
-                              `https://github.com/${ctx.repoOwner}/${ctx.repoName}/issues/${ctx.number}`
-                            )
-                          }}
+            <>
+              <div className="hidden @md:block h-4 w-px bg-border/50" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+                  >
+                    <CircleDot className="h-3.5 w-3.5" />
+                    <span>
+                      {loadedIssueCount > 0 &&
+                        `${loadedIssueCount} Issue${loadedIssueCount > 1 ? 's' : ''}`}
+                      {loadedIssueCount > 0 &&
+                        (loadedPRCount > 0 || loadedContextCount > 0) &&
+                        ', '}
+                      {loadedPRCount > 0 &&
+                        `${loadedPRCount} PR${loadedPRCount > 1 ? 's' : ''}`}
+                      {loadedPRCount > 0 && loadedContextCount > 0 && ', '}
+                      {loadedContextCount > 0 &&
+                        `${loadedContextCount} Context${loadedContextCount > 1 ? 's' : ''}`}
+                    </span>
+                    <ChevronDown className="h-3 w-3 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  {/* Issues section */}
+                  {loadedIssueContexts.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Issues
+                      </DropdownMenuLabel>
+                      {loadedIssueContexts.map(ctx => (
+                        <DropdownMenuItem
+                          key={ctx.number}
+                          onClick={() => handleViewIssue(ctx)}
                         >
-                          <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-                        </button>
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
+                          <CircleDot className="h-4 w-4 text-green-500" />
+                          <span className="truncate">
+                            #{ctx.number} {ctx.title}
+                          </span>
+                          <button
+                            className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
+                            onClick={e => {
+                              e.stopPropagation()
+                              openExternal(
+                                `https://github.com/${ctx.repoOwner}/${ctx.repoName}/issues/${ctx.number}`
+                              )
+                            }}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                          </button>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
 
-                {/* PRs section */}
-                {loadedPRContexts.length > 0 && (
-                  <>
-                    {loadedIssueContexts.length > 0 && (
-                      <DropdownMenuSeparator />
-                    )}
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      Pull Requests
-                    </DropdownMenuLabel>
-                    {loadedPRContexts.map(ctx => (
-                      <DropdownMenuItem
-                        key={ctx.number}
-                        onClick={() => handleViewPR(ctx)}
-                      >
-                        <GitPullRequest className="h-4 w-4 text-green-500" />
-                        <span className="truncate">
-                          #{ctx.number} {ctx.title}
-                        </span>
-                        <button
-                          className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
-                          onClick={e => {
-                            e.stopPropagation()
-                            openExternal(
-                              `https://github.com/${ctx.repoOwner}/${ctx.repoName}/pull/${ctx.number}`
-                            )
-                          }}
+                  {/* PRs section */}
+                  {loadedPRContexts.length > 0 && (
+                    <>
+                      {loadedIssueContexts.length > 0 && (
+                        <DropdownMenuSeparator />
+                      )}
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Pull Requests
+                      </DropdownMenuLabel>
+                      {loadedPRContexts.map(ctx => (
+                        <DropdownMenuItem
+                          key={ctx.number}
+                          onClick={() => handleViewPR(ctx)}
                         >
-                          <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-                        </button>
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
+                          <GitPullRequest className="h-4 w-4 text-green-500" />
+                          <span className="truncate">
+                            #{ctx.number} {ctx.title}
+                          </span>
+                          <button
+                            className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
+                            onClick={e => {
+                              e.stopPropagation()
+                              openExternal(
+                                `https://github.com/${ctx.repoOwner}/${ctx.repoName}/pull/${ctx.number}`
+                              )
+                            }}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                          </button>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
 
-                {/* Saved contexts section */}
-                {attachedSavedContexts.length > 0 && (
-                  <>
-                    {(loadedIssueContexts.length > 0 ||
-                      loadedPRContexts.length > 0) && <DropdownMenuSeparator />}
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                      Contexts
-                    </DropdownMenuLabel>
-                    {attachedSavedContexts.map(ctx => (
-                      <DropdownMenuItem
-                        key={ctx.slug}
-                        onClick={() => handleViewSavedContext(ctx)}
-                      >
-                        <FolderOpen className="h-4 w-4 text-blue-500" />
-                        <span className="truncate">{ctx.name || ctx.slug}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
+                  {/* Saved contexts section */}
+                  {attachedSavedContexts.length > 0 && (
+                    <>
+                      {(loadedIssueContexts.length > 0 ||
+                        loadedPRContexts.length > 0) && <DropdownMenuSeparator />}
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        Contexts
+                      </DropdownMenuLabel>
+                      {attachedSavedContexts.map(ctx => (
+                        <DropdownMenuItem
+                          key={ctx.slug}
+                          onClick={() => handleViewSavedContext(ctx)}
+                        >
+                          <FolderOpen className="h-4 w-4 text-blue-500" />
+                          <span className="truncate">{ctx.name || ctx.slug}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
 
-                {/* Manage button */}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onLoadContext}>
-                  <FolderOpen className="h-4 w-4" />
-                  Manage Contexts...
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        )}
+                  {/* Manage button */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onLoadContext}>
+                    <FolderOpen className="h-4 w-4" />
+                    Manage Contexts...
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
 
         {/* PR link indicator - desktop only */}
         {prUrl && prNumber && (
@@ -1187,7 +1191,7 @@ export const ChatToolbar = memo(function ChatToolbar({
                   className={cn(
                     'hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                     activeMcpCount > 0 &&
-                      'border border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-400'
+                    'border border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/10 dark:text-emerald-400'
                   )}
                 >
                   <Plug className="h-3.5 w-3.5" />
@@ -1358,7 +1362,7 @@ export const ChatToolbar = memo(function ChatToolbar({
                     className={cn(
                       'hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                       !thinkingOverrideActive &&
-                        'border border-purple-500/50 bg-purple-500/10 text-purple-700 dark:border-purple-400/40 dark:bg-purple-500/10 dark:text-purple-400'
+                      'border border-purple-500/50 bg-purple-500/10 text-purple-700 dark:border-purple-400/40 dark:bg-purple-500/10 dark:text-purple-400'
                     )}
                   >
                     <Brain className="h-3.5 w-3.5" />
@@ -1366,8 +1370,8 @@ export const ChatToolbar = memo(function ChatToolbar({
                       {thinkingOverrideActive
                         ? 'Off'
                         : EFFORT_LEVEL_OPTIONS.find(
-                            o => o.value === selectedEffortLevel
-                          )?.label}
+                          o => o.value === selectedEffortLevel
+                        )?.label}
                     </span>
                     <ChevronDown className="h-3 w-3 opacity-50" />
                   </button>
@@ -1410,8 +1414,8 @@ export const ChatToolbar = memo(function ChatToolbar({
                     className={cn(
                       'hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                       selectedThinkingLevel !== 'off' &&
-                        !thinkingOverrideActive &&
-                        'border border-purple-500/50 bg-purple-500/10 text-purple-700 dark:border-purple-400/40 dark:bg-purple-500/10 dark:text-purple-400'
+                      !thinkingOverrideActive &&
+                      'border border-purple-500/50 bg-purple-500/10 text-purple-700 dark:border-purple-400/40 dark:bg-purple-500/10 dark:text-purple-400'
                     )}
                   >
                     <Brain className="h-3.5 w-3.5" />
@@ -1419,8 +1423,8 @@ export const ChatToolbar = memo(function ChatToolbar({
                       {thinkingOverrideActive
                         ? 'Off'
                         : THINKING_LEVEL_OPTIONS.find(
-                            o => o.value === selectedThinkingLevel
-                          )?.label}
+                          o => o.value === selectedThinkingLevel
+                        )?.label}
                     </span>
                     <ChevronDown className="h-3 w-3 opacity-50" />
                   </button>
@@ -1468,9 +1472,9 @@ export const ChatToolbar = memo(function ChatToolbar({
                   className={cn(
                     'hidden @md:flex h-8 items-center gap-1.5 px-3 text-sm text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50',
                     executionMode === 'plan' &&
-                      'border border-yellow-600/50 bg-yellow-500/10 text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/10 dark:text-yellow-400',
+                    'border border-yellow-600/50 bg-yellow-500/10 text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/10 dark:text-yellow-400',
                     executionMode === 'yolo' &&
-                      'border border-red-500/50 bg-red-500/10 text-red-600 dark:border-red-400/40 dark:text-red-400'
+                    'border border-red-500/50 bg-red-500/10 text-red-600 dark:border-red-400/40 dark:text-red-400'
                   )}
                 >
                   {executionMode === 'plan' && (

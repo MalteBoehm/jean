@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { invoke } from '@/lib/transport'
+import { hasBackend } from '@/lib/environment'
+
+const isTauri = hasBackend
 
 export interface OpenCodeCliStatus {
     installed: boolean
@@ -16,7 +19,16 @@ export interface OpenCodeModel {
 export function useOpenCodeInstalled() {
     return useQuery({
         queryKey: ['opencode', 'installed'],
-        queryFn: () => invoke<OpenCodeCliStatus>('check_opencode_installed'),
+        queryFn: async (): Promise<OpenCodeCliStatus> => {
+            if (!isTauri()) {
+                return { installed: false, version: null }
+            }
+            try {
+                return await invoke<OpenCodeCliStatus>('check_opencode_installed')
+            } catch {
+                return { installed: false, version: null }
+            }
+        },
         staleTime: 1000 * 60 * 5, // Cache for 5 min
         retry: false,
     })
@@ -26,7 +38,16 @@ export function useOpenCodeInstalled() {
 export function useOpenCodeModels(enabled = true) {
     return useQuery({
         queryKey: ['opencode', 'models'],
-        queryFn: () => invoke<OpenCodeModel[]>('list_opencode_models'),
+        queryFn: async (): Promise<OpenCodeModel[]> => {
+            if (!isTauri()) {
+                return []
+            }
+            try {
+                return await invoke<OpenCodeModel[]>('list_opencode_models')
+            } catch {
+                return []
+            }
+        },
         staleTime: 1000 * 60 * 5,
         enabled,
         retry: false,

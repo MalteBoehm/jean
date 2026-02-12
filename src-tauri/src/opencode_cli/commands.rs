@@ -16,24 +16,18 @@ pub struct OpenCodeCliStatus {
 pub async fn check_opencode_installed() -> Result<OpenCodeCliStatus, String> {
     log::trace!("Checking OpenCode CLI installation...");
 
-    // Try `which opencode` to find the binary
-    let which_output = silent_command("which")
-        .arg("opencode")
-        .output()
-        .map_err(|e| format!("Failed to run 'which opencode': {e}"))?;
-
-    if !which_output.status.success() {
-        log::trace!("OpenCode CLI not found in PATH");
-        return Ok(OpenCodeCliStatus {
-            installed: false,
-            version: None,
-            path: None,
-        });
-    }
-
-    let path = String::from_utf8_lossy(&which_output.stdout)
-        .trim()
-        .to_string();
+    // Use the `which` crate to find the binary (cross-platform)
+    let path = match which::which("opencode") {
+        Ok(p) => p.to_string_lossy().to_string(),
+        Err(_) => {
+            log::trace!("OpenCode CLI not found in PATH");
+            return Ok(OpenCodeCliStatus {
+                installed: false,
+                version: None,
+                path: None,
+            });
+        }
+    };
 
     // Get version
     let version_output = silent_command("opencode")

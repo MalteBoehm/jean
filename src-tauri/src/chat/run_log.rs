@@ -640,7 +640,8 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                     state.and_then(|s| s.get("output")).map(|v| {
                         if let Some(s) = v.as_str() {
                             if s.len() > 2000 {
-                                format!("{}...(truncated)", &s[..2000])
+                                let truncated = s.get(..2000).unwrap_or(s);
+                                format!("{}...(truncated)", truncated)
                             } else {
                                 s.to_string()
                             }

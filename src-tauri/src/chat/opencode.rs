@@ -336,9 +336,16 @@ pub fn tail_opencode_output(
 
     let startup_timeout = Duration::from_secs(120);
     let dead_process_timeout = Duration::from_secs(2);
+    // Interactive stall detection: OpenCode's plan agent may block on stdin
+    // waiting for user input. Since we run detached with piped stdin, this
+    // will never arrive. Detect the stall and synthesize an AskUserQuestion.
+    let interactive_stall_timeout = Duration::from_secs(30);
     let started_at = Instant::now();
     let mut last_output_time = Instant::now();
     let mut received_output = false;
+    // Track last event type and text content for stall detection
+    let mut last_event_type = String::new();
+    let mut last_text_content = String::new();
 
     loop {
         let lines = tailer.poll()?;
@@ -391,6 +398,7 @@ pub fn tail_opencode_output(
             match msg_type {
                 // OpenCode text content events
                 "assistant" | "text" | "content" => {
+                    last_event_type = msg_type.to_string();
                     // Try to get text from various possible structures
                     let text = extract_text_content(&msg);
                     if let Some(text) = text {
@@ -398,6 +406,7 @@ pub fn tail_opencode_output(
                             continue;
                         }
                         full_content.push_str(&text);
+                        last_text_content = text.clone();
                         content_blocks.push(ContentBlock::Text { text: text.clone() });
 
                         let event = ChunkEvent {
@@ -433,6 +442,7 @@ pub fn tail_opencode_output(
                 // OpenCode format: part.tool (name), part.callID (id), part.state.input, part.state.output
                 // When state.status="completed", the event includes both the call AND the result
                 "tool_use" | "tool_call" => {
+                    last_event_type = msg_type.to_string();
                     let part = msg.get("part");
 
                     // Extract from part (OpenCode format) or top-level (fallback)
@@ -468,9 +478,10 @@ pub fn tail_opencode_output(
                     let output = if status == "completed" {
                         state.and_then(|s| s.get("output")).map(|v| {
                             if let Some(s) = v.as_str() {
-                                // Truncate very long outputs for display
+                                // Truncate very long outputs for display (UTF-8 safe)
                                 if s.len() > 2000 {
-                                    format!("{}...(truncated)", &s[..2000])
+                                    let truncated = s.get(..2000).unwrap_or(s);
+                                    format!("{}...(truncated)", truncated)
                                 } else {
                                     s.to_string()
                                 }
@@ -531,6 +542,7 @@ pub fn tail_opencode_output(
 
                 // OpenCode tool result events
                 "tool_result" => {
+                    last_event_type = "tool_result".to_string();
                     let tool_id = msg
                         .get("tool_use_id")
                         .and_then(|v| v.as_str())
@@ -564,6 +576,7 @@ pub fn tail_opencode_output(
 
                 // OpenCode user messages (may contain tool results)
                 "user" => {
+                    last_event_type = "user".to_string();
                     if let Some(message) = msg.get("message") {
                         if let Some(blocks) = message.get("content").and_then(|c| c.as_array()) {
                             for block in blocks {
@@ -599,6 +612,7 @@ pub fn tail_opencode_output(
 
                 // OpenCode thinking events
                 "thinking" => {
+                    last_event_type = "thinking".to_string();
                     if let Some(thinking) = msg
                         .get("thinking")
                         .or_else(|| msg.get("content"))
@@ -639,6 +653,7 @@ pub fn tail_opencode_output(
                 // OpenCode step_finish with stop reason
                 // Reason is at msg.part.reason, tokens at msg.part.tokens
                 "step_finish" => {
+                    last_event_type = "step_finish".to_string();
                     let part = msg.get("part");
                     let stop_reason = part
                         .and_then(|p| p.get("reason"))
@@ -655,6 +670,12 @@ pub fn tail_opencode_output(
                             completed = true;
                         }
                     }
+                }
+
+                // OpenCode step_start events — no payload to process,
+                // but we track the event type for stall detection
+                "step_start" => {
+                    last_event_type = "step_start".to_string();
                 }
 
                 _ => {
@@ -686,6 +707,105 @@ pub fn tail_opencode_output(
                     cancelled = true;
                 }
                 break;
+            }
+
+            // Interactive stall detection: process is alive but no new output.
+            // This happens when OpenCode's plan agent asks clarifying questions
+            // and blocks on stdin, which never arrives in detached mode.
+            if process_alive
+                && last_output_time.elapsed() > interactive_stall_timeout
+                && (last_event_type == "text"
+                    || last_event_type == "content"
+                    || last_event_type == "assistant"
+                    || last_event_type == "step_start")
+            {
+                log::trace!(
+                    "Interactive stall detected for session {session_id}: \
+                     process alive, no output for {:?}, last_event={last_event_type}",
+                    last_output_time.elapsed()
+                );
+
+                // Synthesize an AskUserQuestion tool call from the last text
+                let ask_id = format!("opencode_ask_{}", uuid::Uuid::new_v4());
+                let question_text = if last_text_content.is_empty() {
+                    "OpenCode is waiting for your input.".to_string()
+                } else {
+                    last_text_content.clone()
+                };
+
+                let ask_input = serde_json::json!({
+                    "questions": [{
+                        "question": question_text,
+                        "options": [],
+                        "allowCustom": true
+                    }]
+                });
+
+                tool_calls.push(ToolCall {
+                    id: ask_id.clone(),
+                    name: "AskUserQuestion".to_string(),
+                    input: ask_input.clone(),
+                    output: None,
+                    parent_tool_use_id: None,
+                });
+
+                content_blocks.push(ContentBlock::ToolUse {
+                    tool_call_id: ask_id.clone(),
+                });
+
+                // Emit tool_use event so the frontend renders the question UI
+                let tool_event = ToolUseEvent {
+                    session_id: session_id.to_string(),
+                    worktree_id: worktree_id.to_string(),
+                    id: ask_id.clone(),
+                    name: "AskUserQuestion".to_string(),
+                    input: ask_input,
+                    parent_tool_use_id: None,
+                };
+                if let Err(e) = app.emit_all("chat:tool_use", &tool_event) {
+                    log::error!("Failed to emit synthesized AskUserQuestion: {e}");
+                }
+
+                let block_event = ToolBlockEvent {
+                    session_id: session_id.to_string(),
+                    worktree_id: worktree_id.to_string(),
+                    tool_call_id: ask_id,
+                };
+                if let Err(e) = app.emit_all("chat:tool_block", &block_event) {
+                    log::error!("Failed to emit tool_block for AskUserQuestion: {e}");
+                }
+
+                // Kill the stalled process
+                log::trace!("Killing stalled OpenCode process {pid}");
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGKILL);
+                }
+                #[cfg(windows)]
+                {
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/F", "/PID", &pid.to_string()])
+                        .output();
+                }
+
+                // Emit done event so frontend knows streaming is complete
+                let done_event = DoneEvent {
+                    session_id: session_id.to_string(),
+                    worktree_id: worktree_id.to_string(),
+                };
+                if let Err(e) = app.emit_all("chat:done", &done_event) {
+                    log::error!("Failed to emit done event: {e}");
+                }
+
+                // Return partial response with the synthesized AskUserQuestion
+                return Ok(OpenCodeResponse {
+                    content: full_content,
+                    session_id: opencode_session_id,
+                    tool_calls,
+                    content_blocks,
+                    cancelled: false,
+                    usage: None,
+                });
             }
         } else {
             let elapsed = started_at.elapsed();

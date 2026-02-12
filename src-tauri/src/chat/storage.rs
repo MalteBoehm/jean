@@ -388,7 +388,7 @@ pub fn load_sessions(
                 message_count: Some(entry.message_count),
                 claude_session_id: None,
                 opencode_session_id: None,
-                provider: String::new(),
+                provider: "claude".to_string(),
                 selected_model: None,
                 selected_thinking_level: None,
                 session_naming_completed: false,
