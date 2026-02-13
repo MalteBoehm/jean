@@ -421,7 +421,7 @@ export const ChatToolbar = memo(function ChatToolbar({
       }
       if (isOpenCodeProvider) {
         // OpenCode selected but models not loaded yet — don't show Claude options
-        return [{ value: '', label: 'Loading models…', disabled: true }]
+        return [{ value: '__loading__', label: 'Loading models…', disabled: true }]
       }
       if (selectedProvider) {
         return [
