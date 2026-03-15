@@ -8,7 +8,7 @@ describe('StreamingMessage', () => {
     _toolCallId: string,
     _answers: QuestionAnswer[],
     _questions: Question[]
-  ) => {}
+  ) => undefined
 
   const baseProps = {
     sessionId: 'session-1',
@@ -36,10 +36,7 @@ describe('StreamingMessage', () => {
 
   it('hides the placeholder once streaming text is available', () => {
     render(
-      <StreamingMessage
-        {...baseProps}
-        streamingContent="Working on it..."
-      />
+      <StreamingMessage {...baseProps} streamingContent="Working on it..." />
     )
 
     expect(

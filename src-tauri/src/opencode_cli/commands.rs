@@ -117,11 +117,10 @@ fn emit_progress(app: &AppHandle, stage: &str, message: &str, percent: u8) {
 }
 
 /// Check if OpenCode CLI is installed and get its status.
-#[tauri::command]
-pub async fn check_opencode_cli_installed(app: AppHandle) -> Result<OpenCodeCliStatus, String> {
+pub(crate) fn get_opencode_cli_status(app: &AppHandle) -> Result<OpenCodeCliStatus, String> {
     log::trace!("Checking OpenCode CLI installation status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         return Ok(OpenCodeCliStatus {
@@ -156,6 +155,11 @@ pub async fn check_opencode_cli_installed(app: AppHandle) -> Result<OpenCodeCliS
     })
 }
 
+#[tauri::command]
+pub async fn check_opencode_cli_installed(app: AppHandle) -> Result<OpenCodeCliStatus, String> {
+    get_opencode_cli_status(&app)
+}
+
 fn strip_ansi(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -163,7 +167,7 @@ fn strip_ansi(input: &str) -> String {
         if ch == '\u{1b}' {
             if chars.peek().is_some_and(|c| *c == '[') {
                 let _ = chars.next();
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     if ('@'..='~').contains(&c) {
                         break;
                     }
@@ -201,11 +205,10 @@ fn is_model_identifier(value: &str) -> bool {
 }
 
 /// Check if OpenCode CLI has any configured credentials.
-#[tauri::command]
-pub async fn check_opencode_cli_auth(app: AppHandle) -> Result<OpenCodeAuthStatus, String> {
+pub(crate) fn get_opencode_cli_auth_status(app: &AppHandle) -> Result<OpenCodeAuthStatus, String> {
     log::trace!("Checking OpenCode CLI authentication status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         return Ok(OpenCodeAuthStatus {
@@ -243,6 +246,11 @@ pub async fn check_opencode_cli_auth(app: AppHandle) -> Result<OpenCodeAuthStatu
             Some("No credentials configured. Run `opencode auth login`.".to_string())
         },
     })
+}
+
+#[tauri::command]
+pub async fn check_opencode_cli_auth(app: AppHandle) -> Result<OpenCodeAuthStatus, String> {
+    get_opencode_cli_auth_status(&app)
 }
 
 /// Get the platform-specific asset info for GitHub release downloads.

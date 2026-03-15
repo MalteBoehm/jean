@@ -220,7 +220,7 @@ pub struct DeniedMessageContext {
 
 /// A content block in a message - text, tool use, or thinking
 /// Used to preserve the order of content in Claude's response
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Text { text: String },
@@ -594,6 +594,7 @@ impl WorktreeIndex {
     /// Create an empty WorktreeIndex with no default session.
     /// Use this for programmatically-created worktrees where sessions are added explicitly.
     /// Sets `branch_naming_completed = true` to prevent auto-renaming.
+    #[allow(dead_code)]
     pub fn new_empty(worktree_id: String) -> Self {
         Self {
             worktree_id,

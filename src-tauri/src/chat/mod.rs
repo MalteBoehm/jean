@@ -5,6 +5,7 @@ mod commands;
 pub mod detached;
 mod naming;
 pub(crate) mod opencode;
+pub(crate) mod provider_status;
 pub mod registry;
 pub mod run_log;
 pub mod storage;
@@ -12,6 +13,7 @@ pub mod tail;
 pub mod types;
 
 pub use commands::*;
+pub use provider_status::get_ai_provider_overview;
 pub use storage::{preserve_base_sessions, restore_base_sessions, with_sessions_mut};
 
 use std::sync::atomic::{AtomicUsize, Ordering};

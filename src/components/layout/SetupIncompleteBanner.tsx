@@ -1,6 +1,4 @@
-import { useClaudeCliStatus, useClaudeCliAuth } from '@/services/claude-cli'
-import { useCodexCliStatus, useCodexCliAuth } from '@/services/codex-cli'
-import { useOpencodeCliStatus, useOpencodeCliAuth } from '@/services/opencode-cli'
+import { useAiProviderOverview } from '@/services/ai-provider'
 import { useGhCliStatus, useGhCliAuth } from '@/services/gh-cli'
 import { useUIStore } from '@/store/ui-store'
 import { isNativeApp } from '@/lib/environment'
@@ -10,14 +8,9 @@ export function SetupIncompleteBanner() {
   const onboardingDismissed = useUIStore(state => state.onboardingDismissed)
   const onboardingOpen = useUIStore(state => state.onboardingOpen)
 
-  const claudeStatus = useClaudeCliStatus()
-  const codexStatus = useCodexCliStatus()
-  const opencodeStatus = useOpencodeCliStatus()
+  const providerOverview = useAiProviderOverview()
   const ghStatus = useGhCliStatus()
 
-  const claudeAuth = useClaudeCliAuth({ enabled: !!claudeStatus.data?.installed })
-  const codexAuth = useCodexCliAuth({ enabled: !!codexStatus.data?.installed })
-  const opencodeAuth = useOpencodeCliAuth({ enabled: !!opencodeStatus.data?.installed })
   const ghAuth = useGhCliAuth({ enabled: !!ghStatus.data?.installed })
 
   if (!isNativeApp()) return null
@@ -25,8 +18,9 @@ export function SetupIncompleteBanner() {
   if (!onboardingDismissed || onboardingOpen) return null
 
   const isLoading =
-    claudeStatus.isLoading || codexStatus.isLoading ||
-    opencodeStatus.isLoading || ghStatus.isLoading
+    providerOverview.isLoading ||
+    ghStatus.isLoading ||
+    (!!ghStatus.data?.installed && ghAuth.isLoading)
 
   if (isLoading) {
     return (
@@ -38,10 +32,13 @@ export function SetupIncompleteBanner() {
   }
 
   const ghReady = !!ghStatus.data?.installed && !!ghAuth.data?.authenticated
-  const hasAiBackendReady =
-    (!!claudeStatus.data?.installed && !!claudeAuth.data?.authenticated) ||
-    (!!codexStatus.data?.installed && !!codexAuth.data?.authenticated) ||
-    (!!opencodeStatus.data?.installed && !!opencodeAuth.data?.authenticated)
+  const providers = providerOverview.data?.providers
+  const hasAiBackendReady = Boolean(
+    providers &&
+    Object.values(providers).some(
+      provider => provider.available && provider.capabilities.chat
+    )
+  )
 
   // Everything is set up — no banner needed
   if (ghReady && hasAiBackendReady) return null

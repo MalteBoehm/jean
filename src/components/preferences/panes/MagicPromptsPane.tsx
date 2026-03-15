@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Check, ChevronsUpDown, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -23,10 +24,15 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { usePreferences, usePatchPreferences } from '@/services/preferences'
+import { useAiProviderOverview } from '@/services/ai-provider'
 import { useInstalledBackends } from '@/hooks/useInstalledBackends'
 import { useAvailableOpencodeModels } from '@/services/opencode-cli'
 import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
 import { OPENCODE_MODEL_OPTIONS as OPENCODE_FALLBACK_OPTIONS } from '@/components/chat/toolbar/toolbar-options'
+import {
+  resolveAiFeatureAvailability,
+  type AiFeature,
+} from '@/types/ai-provider'
 import {
   DEFAULT_INVESTIGATE_ISSUE_PROMPT,
   DEFAULT_INVESTIGATE_PR_PROMPT,
@@ -187,13 +193,11 @@ const PROMPT_SECTIONS: PromptSection[] = [
         providerKey: 'investigate_advisory_provider',
         backendKey: 'investigate_advisory_backend',
         label: 'Investigate Security Advisory',
-        description:
-          'Prompt for investigating repository security advisories.',
+        description: 'Prompt for investigating repository security advisories.',
         variables: [
           {
             name: '{advisoryRefs}',
-            description:
-              'Advisory references (e.g., GHSA-xxxx-yyyy (high))',
+            description: 'Advisory references (e.g., GHSA-xxxx-yyyy (high))',
           },
           {
             name: '{advisoryWord}',
@@ -270,7 +274,8 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
           {
             name: '{reviewComments}',
-            description: 'Formatted selected review comments with file paths, diffs, and bodies',
+            description:
+              'Formatted selected review comments with file paths, diffs, and bodies',
           },
         ],
         defaultValue: DEFAULT_REVIEW_COMMENTS_PROMPT,
@@ -445,6 +450,38 @@ const PROMPT_SECTIONS: PromptSection[] = [
   },
 ]
 
+const PROMPT_AVAILABILITY_FEATURES: Record<keyof MagicPrompts, AiFeature> = {
+  investigate_issue: 'investigateIssue',
+  investigate_pr: 'investigatePr',
+  pr_content: 'prContentGeneration',
+  commit_message: 'commitMessageGeneration',
+  code_review: 'codeReview',
+  context_summary: 'contextSummarization',
+  resolve_conflicts: 'resolveConflicts',
+  investigate_workflow_run: 'investigateWorkflowRun',
+  release_notes: 'releaseNotes',
+  session_naming: 'sessionNaming',
+  parallel_execution: 'chat',
+  global_system_prompt: 'chat',
+  session_recap: 'sessionRecap',
+  investigate_security_alert: 'investigateSecurityAlert',
+  investigate_advisory: 'investigateAdvisory',
+  investigate_linear_issue: 'investigateLinearIssue',
+  review_comments: 'chat',
+}
+
+function getAvailabilityBadgeClass(
+  status: 'ready' | 'setup_required' | 'unsupported'
+) {
+  if (status === 'ready') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  }
+  if (status === 'setup_required') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  }
+  return 'border-muted-foreground/20 bg-muted text-muted-foreground'
+}
+
 // Flat list for lookups
 const PROMPT_CONFIGS = PROMPT_SECTIONS.flatMap(s => s.configs)
 
@@ -462,6 +499,7 @@ const CODEX_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] =
 export const MagicPromptsPane: React.FC = () => {
   const { data: preferences } = usePreferences()
   const patchPreferences = usePatchPreferences()
+  const providerOverview = useAiProviderOverview()
   const [selectedKey, setSelectedKey] =
     useState<keyof MagicPrompts>('investigate_issue')
   const [localValue, setLocalValue] = useState('')
@@ -512,6 +550,10 @@ export const MagicPromptsPane: React.FC = () => {
   const currentBackend = selectedConfig.backendKey
     ? (currentBackends[selectedConfig.backendKey] ?? null)
     : undefined
+  const availabilityFeature = PROMPT_AVAILABILITY_FEATURES[selectedKey]
+  const availability = providerOverview.data
+    ? resolveAiFeatureAvailability(providerOverview.data, availabilityFeature)
+    : null
   // Resolve effective backend for model filtering: per-operation override > global default_backend
   const effectiveBackend =
     currentBackend ?? preferences?.default_backend ?? 'claude'
@@ -657,7 +699,12 @@ export const MagicPromptsPane: React.FC = () => {
         },
       })
     },
-    [preferences, patchPreferences, currentProviders, selectedConfig.providerKey]
+    [
+      preferences,
+      patchPreferences,
+      currentProviders,
+      selectedConfig.providerKey,
+    ]
   )
 
   const handleBackendChange = useCallback(
@@ -835,7 +882,9 @@ export const MagicPromptsPane: React.FC = () => {
           <div className="flex items-center gap-2 mb-2 shrink-0">
             {currentBackend !== undefined && (
               <>
-                <span className="text-xs text-muted-foreground">Backend</span>
+                <span className="text-xs text-muted-foreground">
+                  Primary provider
+                </span>
                 <Select
                   value={effectiveBackend}
                   onValueChange={handleBackendChange}
@@ -855,6 +904,20 @@ export const MagicPromptsPane: React.FC = () => {
                     )}
                   </SelectContent>
                 </Select>
+                {availability ? (
+                  <Badge
+                    variant="outline"
+                    className={getAvailabilityBadgeClass(availability.status)}
+                  >
+                    {availability.status === 'ready'
+                      ? 'Ready'
+                      : availability.status === 'setup_required'
+                        ? 'Setup required'
+                        : 'Unsupported'}
+                  </Badge>
+                ) : (
+                  <Badge variant="muted">Checking…</Badge>
+                )}
               </>
             )}
             {currentProvider !== undefined &&
@@ -865,7 +928,7 @@ export const MagicPromptsPane: React.FC = () => {
               effectiveBackend !== 'codex' && (
                 <>
                   <span className="text-xs text-muted-foreground">
-                    Provider
+                    Claude profile
                   </span>
                   <Select
                     value={currentProvider ?? 'anthropic'}
@@ -1031,9 +1094,7 @@ export const MagicPromptsPane: React.FC = () => {
                   <code className="bg-muted px-1 py-0.5 rounded font-mono">
                     {v.name}
                   </code>
-                  <span className="text-muted-foreground">
-                    {v.description}
-                  </span>
+                  <span className="text-muted-foreground">{v.description}</span>
                 </span>
               ))}
             </div>

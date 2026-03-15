@@ -327,7 +327,7 @@ fn save_cached_codex_usage(snapshot: &CodexUsageSnapshot, now_secs: u64) {
 
 #[cfg(target_os = "macos")]
 fn decode_hex_utf8(hex: &str) -> Option<String> {
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return None;
     }
     if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -569,11 +569,10 @@ async fn refresh_codex_access_token(
 }
 
 /// Check if Codex CLI is installed and get its status
-#[tauri::command]
-pub async fn check_codex_cli_installed(app: AppHandle) -> Result<CodexCliStatus, String> {
+pub(crate) fn get_codex_cli_status(app: &AppHandle) -> Result<CodexCliStatus, String> {
     log::trace!("Checking Codex CLI installation status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         log::trace!("Codex CLI not found at {:?}", binary_path);
@@ -610,12 +609,16 @@ pub async fn check_codex_cli_installed(app: AppHandle) -> Result<CodexCliStatus,
     })
 }
 
-/// Check if Codex CLI is authenticated
 #[tauri::command]
-pub async fn check_codex_cli_auth(app: AppHandle) -> Result<CodexAuthStatus, String> {
+pub async fn check_codex_cli_installed(app: AppHandle) -> Result<CodexCliStatus, String> {
+    get_codex_cli_status(&app)
+}
+
+/// Check if Codex CLI is authenticated
+pub(crate) fn get_codex_cli_auth_status(app: &AppHandle) -> Result<CodexAuthStatus, String> {
     log::trace!("Checking Codex CLI authentication status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         return Ok(CodexAuthStatus {
@@ -649,6 +652,11 @@ pub async fn check_codex_cli_auth(app: AppHandle) -> Result<CodexAuthStatus, Str
             },
         })
     }
+}
+
+#[tauri::command]
+pub async fn check_codex_cli_auth(app: AppHandle) -> Result<CodexAuthStatus, String> {
+    get_codex_cli_auth_status(&app)
 }
 
 /// Get current Codex usage for authenticated users.

@@ -57,17 +57,17 @@ export const ProvidersPane: React.FC = () => {
   return (
     <div className="space-y-8">
       <SettingsSection
-        title="Claude CLI"
-        description="Custom settings profiles for the Claude CLI. Each profile can override the API endpoint, authentication, and model routing."
+        title="Claude profiles"
+        description="Custom settings profiles for Claude-based sessions and features. These only apply when the selected primary provider is Claude."
       >
         <CliProfilesEditor profiles={profiles} onSave={handleSaveProfiles} />
 
         {profiles.length > 0 && (
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium">Default Provider</p>
+              <p className="text-sm font-medium">Default Claude profile</p>
               <p className="text-xs text-muted-foreground">
-                Provider used for new sessions
+                Profile used for new Claude sessions and Claude-backed features
               </p>
             </div>
             <Select

@@ -547,6 +547,7 @@ pub async fn get_worktree(app: AppHandle, worktree_id: String) -> Result<Worktre
 /// - `worktree:created` - Emitted when creation completes successfully
 /// - `worktree:error` - Emitted if creation fails
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_worktree(
     app: AppHandle,
     project_id: String,
@@ -1325,6 +1326,7 @@ pub async fn create_worktree(
 /// The actual git worktree creation happens in a background thread.
 /// Events are emitted to notify the frontend of progress.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_worktree_from_existing_branch(
     app: AppHandle,
     project_id: String,
@@ -4494,9 +4496,7 @@ pub async fn detect_and_link_pr(
 
     if let Ok(view_out) = view_output {
         if view_out.status.success() {
-            if let Ok(view_json) =
-                serde_json::from_slice::<serde_json::Value>(&view_out.stdout)
-            {
+            if let Ok(view_json) = serde_json::from_slice::<serde_json::Value>(&view_out.stdout) {
                 let pr_number = view_json["number"].as_u64().unwrap_or(0) as u32;
                 let pr_url = view_json["url"].as_str().unwrap_or("").to_string();
                 let title = view_json["title"].as_str().unwrap_or("").to_string();
@@ -4506,9 +4506,7 @@ pub async fn detect_and_link_pr(
 
                     // Save PR info to worktree
                     if let Ok(mut data) = load_projects_data(&app) {
-                        if let Some(wt) =
-                            data.worktrees.iter_mut().find(|w| w.id == worktree_id)
-                        {
+                        if let Some(wt) = data.worktrees.iter_mut().find(|w| w.id == worktree_id) {
                             wt.pr_number = Some(pr_number);
                             wt.pr_url = Some(pr_url.clone());
                             let _ = save_projects_data(&app, &data);
@@ -5942,6 +5940,7 @@ fn push_for_commit(
 }
 
 /// Generate commit message using Claude CLI with JSON schema
+#[allow(clippy::too_many_arguments)]
 fn generate_commit_message(
     app: &AppHandle,
     prompt: &str,
@@ -6399,6 +6398,7 @@ fn execute_codex_review(
 }
 
 /// Execute Claude CLI to generate a code review
+#[allow(clippy::too_many_arguments)]
 fn generate_review(
     app: &AppHandle,
     prompt: &str,
@@ -6868,6 +6868,7 @@ const RELEASE_NOTES_PROMPT: &str = r#"Generate release notes for changes since t
 - Keep it concise and user-facing (skip internal implementation details)"#;
 
 /// Generate release notes content using Claude CLI
+#[allow(clippy::too_many_arguments)]
 fn generate_release_notes_content(
     app: &AppHandle,
     project_path: &str,
@@ -7051,6 +7052,7 @@ fn generate_release_notes_content(
 
 /// Generate release notes comparing a tag to HEAD
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_release_notes(
     app: AppHandle,
     project_path: String,

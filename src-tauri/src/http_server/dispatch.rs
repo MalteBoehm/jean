@@ -241,7 +241,9 @@ pub async fn dispatch_command(
         "detect_and_link_pr" => {
             let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
             let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
-            let result = crate::projects::detect_and_link_pr(app.clone(), worktree_id, worktree_path).await?;
+            let result =
+                crate::projects::detect_and_link_pr(app.clone(), worktree_id, worktree_path)
+                    .await?;
             if result.is_some() {
                 emit_cache_invalidation(app, &["projects"]);
             }
@@ -710,6 +712,11 @@ pub async fn dispatch_command(
             let result =
                 crate::chat::get_session(app.clone(), worktree_id, worktree_path, session_id)
                     .await?;
+            to_value(result)
+        }
+        "get_ai_provider_overview" => {
+            let worktree_id: Option<String> = field_opt(&args, "worktreeId", "worktree_id")?;
+            let result = crate::chat::get_ai_provider_overview(app.clone(), worktree_id).await?;
             to_value(result)
         }
         "create_session" => {
