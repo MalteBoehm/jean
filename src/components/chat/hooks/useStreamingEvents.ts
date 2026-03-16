@@ -15,6 +15,10 @@ import { isAskUserQuestion, isExitPlanMode } from '@/types/chat'
 import { playNotificationSound } from '@/lib/sounds'
 import { findPlanFilePath } from '@/components/chat/tool-call-utils'
 import { generateId } from '@/lib/uuid'
+import {
+  markBackendPersisting,
+  clearBackendPersisting,
+} from '@/lib/backend-persist-guard'
 import type {
   ChunkEvent,
   ToolUseEvent,
@@ -460,10 +464,11 @@ export default function useStreamingEvents({
       clearLastSentMessage(sessionId)
       useChatStore.getState().clearLastSentAttachments(sessionId)
 
-      // Track disk persistence promise so invalidateQueries waits for it.
-      // Without this, stale data is refetched before the write completes,
-      // causing waiting↔review oscillation via useSessionStatePersistence.
-      let persistencePromise: Promise<unknown> | null = null
+      // Completion state is now persisted by the backend (single authoritative write).
+      // Frontend only updates in-memory state (Zustand + TanStack Query caches).
+      // Guard: prevent useImmediateSessionStateSave from racing with backend write.
+      markBackendPersisting(sessionId)
+      setTimeout(() => clearBackendPersisting(sessionId), 2000)
 
       if (hasUnansweredBlockingTool) {
         // YOLO mode auto-continue: automatically answer blocking tools and continue
@@ -650,7 +655,7 @@ export default function useStreamingEvents({
                 const { worktreePaths } = useChatStore.getState()
                 const wtPath = worktreePaths[worktreeId]
                 if (wtPath) {
-                  persistencePromise = invoke('update_session_state', {
+                  invoke('update_session_state', {
                     worktreeId,
                     worktreePath: wtPath,
                     sessionId,
@@ -670,7 +675,7 @@ export default function useStreamingEvents({
                 const { worktreePaths } = useChatStore.getState()
                 const wtPath = worktreePaths[worktreeId]
                 if (wtPath) {
-                  persistencePromise = invoke('update_session_state', {
+                  invoke('update_session_state', {
                     worktreeId,
                     worktreePath: wtPath,
                     sessionId,
@@ -777,24 +782,24 @@ export default function useStreamingEvents({
             .setPendingPlanMessageId(sessionId, planMessageId)
         }
 
-        // 4. Persist to disk BEFORE invalidating queries
-        const { worktreePaths: wtPaths2 } = useChatStore.getState()
-        const wtPath2 = wtPaths2[worktreeId]
-        if (wtPath2) {
-          persistencePromise = invoke('update_session_state', {
-            worktreeId,
-            worktreePath: wtPath2,
-            sessionId,
-            isReviewing: false,
-            waitingForInput: true,
-            waitingForInputType: 'plan',
-            pendingPlanMessageId: planMessageId ?? null,
-          }).catch(err =>
-            console.error(
-              '[useStreamingEvents] Failed to persist plan-waiting state:',
-              err
+        // Plan-waiting state is persisted by the backend.
+        // Persist plan metadata (pendingPlanMessageId) only.
+        if (planMessageId) {
+          const { worktreePaths: wtPaths2 } = useChatStore.getState()
+          const wtPath2 = wtPaths2[worktreeId]
+          if (wtPath2) {
+            invoke('update_session_state', {
+              worktreeId,
+              worktreePath: wtPath2,
+              sessionId,
+              pendingPlanMessageId: planMessageId,
+            }).catch(err =>
+              console.error(
+                '[useStreamingEvents] Failed to persist plan metadata:',
+                err
+              )
             )
-          )
+          }
         }
 
         // Play waiting sound if not currently viewing this session
@@ -889,25 +894,7 @@ export default function useStreamingEvents({
         })
         completeSession(sessionId)
 
-        // Persist reviewing state to disk BEFORE invalidating queries.
-        // Without this, invalidateQueries can refetch stale is_reviewing: false
-        // and useSessionStatePersistence overwrites Zustand, causing idle↔review oscillation.
-        const { worktreePaths: wtPaths } = useChatStore.getState()
-        const wtPath = wtPaths[worktreeId]
-        if (wtPath) {
-          persistencePromise = invoke('update_session_state', {
-            worktreeId,
-            worktreePath: wtPath,
-            sessionId,
-            isReviewing: true,
-            waitingForInput: false,
-          }).catch(err =>
-            console.error(
-              '[useStreamingEvents] Failed to persist reviewing state:',
-              err
-            )
-          )
-        }
+        // Reviewing state is persisted by the backend — no frontend persist needed.
 
         // Play review sound if not currently viewing this session
         if (!isCurrentlyViewing) {
@@ -982,26 +969,17 @@ export default function useStreamingEvents({
       )
 
       // Invalidate sessions list to update metadata.
-      // Wait for disk persistence (if any) to complete first — otherwise
-      // invalidateQueries refetches stale data and useSessionStatePersistence
-      // overwrites Zustand, causing waiting↔review oscillation.
-      const invalidateSessions = () => {
-        queryClient.invalidateQueries({
-          queryKey: chatQueryKeys.sessions(worktreeId),
-        })
-        queryClient.invalidateQueries({ queryKey: ['all-sessions'] })
-        // Invalidate individual session so cross-client viewers get the
-        // complete conversation (user message + assistant response).
-        queryClient.invalidateQueries({
-          queryKey: chatQueryKeys.session(sessionId),
-        })
-      }
-
-      if (persistencePromise) {
-        persistencePromise.finally(invalidateSessions)
-      } else {
-        invalidateSessions()
-      }
+      // Backend persists completion state and emits cache:invalidate, but we also
+      // invalidate here for optimistic cache consistency on the local client.
+      queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.sessions(worktreeId),
+      })
+      queryClient.invalidateQueries({ queryKey: ['all-sessions'] })
+      // Invalidate individual session so cross-client viewers get the
+      // complete conversation (user message + assistant response).
+      queryClient.invalidateQueries({
+        queryKey: chatQueryKeys.session(sessionId),
+      })
     })
 
     // Handle errors from Claude CLI

@@ -104,6 +104,7 @@ import { playNotificationSound } from '@/lib/sounds'
 import type { ThinkingLevel, EffortLevel } from '@/types/chat'
 import { isNativeApp } from '@/lib/environment'
 import { cn } from '@/lib/utils'
+import { copyToClipboard } from '@/lib/clipboard'
 import {
   setGitPollInterval,
   setRemotePollInterval,
@@ -605,7 +606,7 @@ export const GeneralPane: React.FC = () => {
 
   const handleCopyPath = useCallback((path: string | null | undefined) => {
     if (!path) return
-    navigator.clipboard.writeText(path)
+    copyToClipboard(path)
     toast.success('Path copied to clipboard')
   }, [])
 
