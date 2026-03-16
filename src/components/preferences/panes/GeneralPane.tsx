@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import {
   Command,
   CommandEmpty,
@@ -66,6 +67,7 @@ import {
   TooltipContent,
 } from '@/components/ui/tooltip'
 import { usePreferences, usePatchPreferences } from '@/services/preferences'
+import { useAiProviderOverview } from '@/services/ai-provider'
 import type { AppPreferences } from '@/types/preferences'
 import {
   modelOptions,
@@ -92,6 +94,10 @@ import {
   openInDefaultOptions,
   type OpenInDefault,
 } from '@/types/preferences'
+import {
+  AI_PROVIDER_LABELS,
+  resolveAiFeatureAvailability,
+} from '@/types/ai-provider'
 import { OPENCODE_MODEL_OPTIONS } from '@/components/chat/toolbar/toolbar-options'
 import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
 import { playNotificationSound } from '@/lib/sounds'
@@ -144,9 +150,21 @@ const InlineField: React.FC<{
   </div>
 )
 
+function getAvailabilityBadgeClass(
+  status: 'ready' | 'setup_required' | 'unsupported'
+) {
+  if (status === 'ready')
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  if (status === 'setup_required') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  }
+  return 'border-muted-foreground/20 bg-muted text-muted-foreground'
+}
+
 export const GeneralPane: React.FC = () => {
   const queryClient = useQueryClient()
   const { data: preferences } = usePreferences()
+  const providerOverview = useAiProviderOverview()
   const patchPreferences = usePatchPreferences()
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -321,6 +339,10 @@ export const GeneralPane: React.FC = () => {
     const first = backendOptions.find(o => installed[o.value])
     return first?.value ?? stored
   }, [stored, claudeInstalled, codexInstalled, opencodeInstalled])
+  const chatAvailability = providerOverview.data
+    ? resolveAiFeatureAvailability(providerOverview.data, 'chat')
+    : null
+  const defaultChatProvider = providerOverview.data?.defaultChatProvider ?? null
 
   const handleCodexModelChange = (value: CodexModel) => {
     if (preferences) {
@@ -603,7 +625,11 @@ export const GeneralPane: React.FC = () => {
               ) : claudeAuth?.authenticated ? (
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   Logged in
-                  <Button variant="outline" size="sm" onClick={handleClaudeRelogin}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClaudeRelogin}
+                  >
                     Relogin
                   </Button>
                 </span>
@@ -758,7 +784,11 @@ export const GeneralPane: React.FC = () => {
               ) : codexAuth?.authenticated ? (
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   Logged in
-                  <Button variant="outline" size="sm" onClick={handleCodexRelogin}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCodexRelogin}
+                  >
                     Relogin
                   </Button>
                 </span>
@@ -839,12 +869,20 @@ export const GeneralPane: React.FC = () => {
               ) : opencodeAuth?.authenticated ? (
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   Logged in
-                  <Button variant="outline" size="sm" onClick={handleOpenCodeRelogin}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOpenCodeRelogin}
+                  >
                     Relogin
                   </Button>
                 </span>
               ) : (
-                <Button variant="outline" size="sm" onClick={handleOpenCodeLogin}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenCodeLogin}
+                >
                   Login
                 </Button>
               )
@@ -932,6 +970,33 @@ export const GeneralPane: React.FC = () => {
           </InlineField>
 
           <InlineField
+            label="Default chat provider"
+            description="Resolved readiness for the provider Jean will use for chat by default"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-foreground">
+                {defaultChatProvider
+                  ? AI_PROVIDER_LABELS[defaultChatProvider]
+                  : 'Checking…'}
+              </span>
+              {chatAvailability ? (
+                <Badge
+                  variant="outline"
+                  className={getAvailabilityBadgeClass(chatAvailability.status)}
+                >
+                  {chatAvailability.status === 'ready'
+                    ? 'Ready'
+                    : chatAvailability.status === 'setup_required'
+                      ? 'Setup required'
+                      : 'Unsupported'}
+                </Badge>
+              ) : (
+                <Badge variant="muted">Checking…</Badge>
+              )}
+            </div>
+          </InlineField>
+
+          <InlineField
             label="Default mode"
             description="Permission mode for new sessions"
           >
@@ -990,17 +1055,18 @@ export const GeneralPane: React.FC = () => {
                       >
                         <span className="truncate text-left">
                           {preferences?.build_model
-                            ? (openCodeModelOptions.find(o => o.value === preferences.build_model)?.label
-                              ?? formatOpenCodeModelLabelForSettings(preferences.build_model))
+                            ? (openCodeModelOptions.find(
+                                o => o.value === preferences.build_model
+                              )?.label ??
+                              formatOpenCodeModelLabelForSettings(
+                                preferences.build_model
+                              ))
                             : 'Default model'}
                         </span>
                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent
-                      align="start"
-                      className="w-80 p-0"
-                    >
+                    <PopoverContent align="start" className="w-80 p-0">
                       <Command>
                         <CommandInput placeholder="Search models..." />
                         <CommandList onWheel={e => e.stopPropagation()}>
@@ -1014,7 +1080,15 @@ export const GeneralPane: React.FC = () => {
                               }}
                             >
                               Default model
-                              <Check className={cn('ml-auto h-4 w-4', !preferences?.build_model || preferences.build_model === 'default' ? 'opacity-100' : 'opacity-0')} />
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.build_model ||
+                                    preferences.build_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
                             </CommandItem>
                             {openCodeModelOptions.map(option => (
                               <CommandItem
@@ -1026,7 +1100,14 @@ export const GeneralPane: React.FC = () => {
                                 }}
                               >
                                 <span className="truncate">{option.label}</span>
-                                <Check className={cn('ml-auto h-4 w-4', preferences?.build_model === option.value ? 'opacity-100' : 'opacity-0')} />
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.build_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -1076,7 +1157,9 @@ export const GeneralPane: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <SelectItem value="default">Default thinking</SelectItem>
+                        <SelectItem value="default">
+                          Default thinking
+                        </SelectItem>
                         {thinkingLevelOptions.map(option => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
@@ -1128,17 +1211,18 @@ export const GeneralPane: React.FC = () => {
                       >
                         <span className="truncate text-left">
                           {preferences?.yolo_model
-                            ? (openCodeModelOptions.find(o => o.value === preferences.yolo_model)?.label
-                              ?? formatOpenCodeModelLabelForSettings(preferences.yolo_model))
+                            ? (openCodeModelOptions.find(
+                                o => o.value === preferences.yolo_model
+                              )?.label ??
+                              formatOpenCodeModelLabelForSettings(
+                                preferences.yolo_model
+                              ))
                             : 'Default model'}
                         </span>
                         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent
-                      align="start"
-                      className="w-80 p-0"
-                    >
+                    <PopoverContent align="start" className="w-80 p-0">
                       <Command>
                         <CommandInput placeholder="Search models..." />
                         <CommandList onWheel={e => e.stopPropagation()}>
@@ -1152,7 +1236,15 @@ export const GeneralPane: React.FC = () => {
                               }}
                             >
                               Default model
-                              <Check className={cn('ml-auto h-4 w-4', !preferences?.yolo_model || preferences.yolo_model === 'default' ? 'opacity-100' : 'opacity-0')} />
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.yolo_model ||
+                                    preferences.yolo_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
                             </CommandItem>
                             {openCodeModelOptions.map(option => (
                               <CommandItem
@@ -1164,7 +1256,14 @@ export const GeneralPane: React.FC = () => {
                                 }}
                               >
                                 <span className="truncate">{option.label}</span>
-                                <Check className={cn('ml-auto h-4 w-4', preferences?.yolo_model === option.value ? 'opacity-100' : 'opacity-0')} />
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.yolo_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -1214,7 +1313,9 @@ export const GeneralPane: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <SelectItem value="default">Default thinking</SelectItem>
+                        <SelectItem value="default">
+                          Default thinking
+                        </SelectItem>
                         {thinkingLevelOptions.map(option => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}

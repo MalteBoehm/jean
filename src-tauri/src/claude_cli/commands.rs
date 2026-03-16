@@ -92,11 +92,10 @@ pub struct InstallProgress {
 }
 
 /// Check if Claude CLI is installed and get its status
-#[tauri::command]
-pub async fn check_claude_cli_installed(app: AppHandle) -> Result<ClaudeCliStatus, String> {
+pub(crate) fn get_claude_cli_status(app: &AppHandle) -> Result<ClaudeCliStatus, String> {
     log::trace!("Checking Claude CLI installation status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         log::trace!("Claude CLI not found at {:?}", binary_path);
@@ -153,6 +152,11 @@ pub async fn check_claude_cli_installed(app: AppHandle) -> Result<ClaudeCliStatu
         path: Some(binary_path.to_string_lossy().to_string()),
         supports_auth_command,
     })
+}
+
+#[tauri::command]
+pub async fn check_claude_cli_installed(app: AppHandle) -> Result<ClaudeCliStatus, String> {
+    get_claude_cli_status(&app)
 }
 
 /// npm package metadata for version listing
@@ -615,7 +619,7 @@ fn build_usage_client() -> Result<reqwest::Client, String> {
 
 #[cfg(target_os = "macos")]
 fn decode_hex_utf8(hex: &str) -> Option<String> {
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return None;
     }
     if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -864,11 +868,10 @@ async fn refresh_claude_access_token(
 }
 
 /// Check if Claude CLI is authenticated by running a simple query
-#[tauri::command]
-pub async fn check_claude_cli_auth(app: AppHandle) -> Result<ClaudeAuthStatus, String> {
+pub(crate) fn get_claude_cli_auth_status(app: &AppHandle) -> Result<ClaudeAuthStatus, String> {
     log::trace!("Checking Claude CLI authentication status");
 
-    let binary_path = resolve_cli_binary(&app);
+    let binary_path = resolve_cli_binary(app);
 
     if !binary_path.exists() {
         return Ok(ClaudeAuthStatus {
@@ -905,6 +908,11 @@ pub async fn check_claude_cli_auth(app: AppHandle) -> Result<ClaudeAuthStatus, S
             error: Some(stderr),
         })
     }
+}
+
+#[tauri::command]
+pub async fn check_claude_cli_auth(app: AppHandle) -> Result<ClaudeAuthStatus, String> {
+    get_claude_cli_auth_status(&app)
 }
 
 /// Get current Claude usage for authenticated users.

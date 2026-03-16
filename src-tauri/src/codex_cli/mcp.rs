@@ -26,6 +26,7 @@ struct CodexConfig {
 
 /// A single MCP server entry in Codex TOML config.
 #[derive(serde::Deserialize, Debug)]
+#[allow(dead_code)]
 struct CodexMcpServerEntry {
     // STDIO transport
     command: Option<String>,

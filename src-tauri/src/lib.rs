@@ -2635,6 +2635,7 @@ pub fn run() {
             chat::get_sessions,
             chat::list_all_sessions,
             chat::get_session,
+            chat::provider_status::get_ai_provider_overview,
             chat::create_session,
             chat::rename_session,
             chat::regenerate_session_name,

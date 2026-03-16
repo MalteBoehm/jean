@@ -79,7 +79,9 @@ export function closeActiveTerminalTabForShortcut(): boolean {
   return true
 }
 
-export function switchActiveTerminalTabByIndexForShortcut(index: number): boolean {
+export function switchActiveTerminalTabByIndexForShortcut(
+  index: number
+): boolean {
   const worktreeId = getTerminalShortcutWorktreeId()
   if (!worktreeId) return false
 
@@ -171,10 +173,11 @@ function executeKeybindingAction(
       if (!targetWorktreePath && targetWorktreeId) {
         const projectId = useProjectsStore.getState().selectedProjectId
         if (projectId) {
-          const worktrees = queryClient.getQueryData<{ id: string; path: string }[]>(
-            projectsQueryKeys.worktrees(projectId)
-          )
-          targetWorktreePath = worktrees?.find(w => w.id === targetWorktreeId)?.path ?? null
+          const worktrees = queryClient.getQueryData<
+            { id: string; path: string }[]
+          >(projectsQueryKeys.worktrees(projectId))
+          targetWorktreePath =
+            worktrees?.find(w => w.id === targetWorktreeId)?.path ?? null
         }
       }
 
@@ -232,9 +235,13 @@ function executeKeybindingAction(
             .setModalTerminalOpen(targetWorktreeId, true)
         } else {
           // Canvas view: start PTY headlessly (no terminal UI mounted yet)
+          if (!targetWorktreePath) {
+            notify('No worktree selected', undefined, { type: 'error' })
+            return
+          }
           startHeadless(terminalId, {
             worktreeId: targetWorktreeId,
-            worktreePath: targetWorktreePath!,
+            worktreePath: targetWorktreePath,
             command: runScript,
           })
         }
@@ -500,7 +507,8 @@ export function useMainWindowEventListeners() {
         if (terminalShortcutWorktreeId) {
           const kb = keybindingsRef.current
           const digitMatch = e.code.match(/^Digit(\d)$/)
-          const digit = digitMatch ? parseInt(digitMatch[1]!, 10) : NaN
+          const digitText = digitMatch?.[1]
+          const digit = digitText ? Number.parseInt(digitText, 10) : NaN
 
           if (
             (e.metaKey || e.ctrlKey) &&
@@ -527,7 +535,10 @@ export function useMainWindowEventListeners() {
             closeActiveTerminalTabForShortcut()
             return
           }
-          if (shortcut === kb.toggle_terminal || shortcut === kb.cancel_prompt) {
+          if (
+            shortcut === kb.toggle_terminal ||
+            shortcut === kb.cancel_prompt
+          ) {
             // Let these fall through to the normal keybinding handler below
           } else {
             // Block all other shortcuts
@@ -540,7 +551,8 @@ export function useMainWindowEventListeners() {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
         // Use e.code (physical key) since e.key can vary with CMD held on macOS
         const digitMatch = e.code.match(/^Digit(\d)$/)
-        const digit = digitMatch ? parseInt(digitMatch[1]!, 10) : NaN
+        const digitText = digitMatch?.[1]
+        const digit = digitText ? Number.parseInt(digitText, 10) : NaN
         if (digit >= 1 && digit <= 9) {
           e.preventDefault()
           e.stopPropagation()

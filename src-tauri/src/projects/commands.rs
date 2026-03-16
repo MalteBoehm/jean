@@ -547,6 +547,7 @@ pub async fn get_worktree(app: AppHandle, worktree_id: String) -> Result<Worktre
 /// - `worktree:created` - Emitted when creation completes successfully
 /// - `worktree:error` - Emitted if creation fails
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_worktree(
     app: AppHandle,
     project_id: String,
@@ -1325,6 +1326,7 @@ pub async fn create_worktree(
 /// The actual git worktree creation happens in a background thread.
 /// Events are emitted to notify the frontend of progress.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_worktree_from_existing_branch(
     app: AppHandle,
     project_id: String,
@@ -6010,6 +6012,7 @@ fn push_for_commit(
 }
 
 /// Generate commit message using Claude CLI with JSON schema
+#[allow(clippy::too_many_arguments)]
 fn generate_commit_message(
     app: &AppHandle,
     prompt: &str,
@@ -6468,6 +6471,7 @@ fn execute_codex_review(
 }
 
 /// Execute Claude CLI to generate a code review
+#[allow(clippy::too_many_arguments)]
 fn generate_review(
     app: &AppHandle,
     prompt: &str,
@@ -6937,6 +6941,7 @@ const RELEASE_NOTES_PROMPT: &str = r#"Generate release notes for changes since t
 - Keep it concise and user-facing (skip internal implementation details)"#;
 
 /// Generate release notes content using Claude CLI
+#[allow(clippy::too_many_arguments)]
 fn generate_release_notes_content(
     app: &AppHandle,
     project_path: &str,
@@ -7120,6 +7125,7 @@ fn generate_release_notes_content(
 
 /// Generate release notes comparing a tag to HEAD
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_release_notes(
     app: AppHandle,
     project_path: String,

@@ -93,6 +93,7 @@ Additional systems (no dedicated docs yet):
 - **Diagnostics** - CPU/memory monitoring panel (`src-tauri/src/diagnostics/`)
 - **MCP** - Model Context Protocol server integration with per-project overrides (`src/services/mcp.ts`)
 - **CLI Management** - Claude CLI, Codex CLI, OpenCode, and gh CLI installation/versioning (`src-tauri/src/claude_cli/`, `src-tauri/src/codex_cli/`, `src-tauri/src/opencode/`, `src-tauri/src/gh_cli/`)
+- **Provider Overview** - Central provider readiness/capability model for UI decisions; prefer `get_ai_provider_overview` / `useAiProviderOverview()` over composing per-CLI status/auth queries in each component
 
 ### Component Hierarchy
 

@@ -428,6 +428,7 @@ pub async fn rename_session(
 
 /// Regenerate session name using AI based on the first user message
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn regenerate_session_name(
     app: AppHandle,
     worktree_id: String,
@@ -4128,6 +4129,7 @@ fn generate_fallback_slug(project_name: &str, session_name: &str) -> String {
 }
 
 /// Execute one-shot Claude CLI call for summarization with JSON schema (non-streaming)
+#[allow(clippy::too_many_arguments)]
 fn execute_summarization_claude(
     app: &AppHandle,
     prompt: &str,
@@ -4835,6 +4837,7 @@ pub struct SessionDigestResponse {
 }
 
 /// Execute one-shot Claude CLI call for session digest with JSON schema (non-streaming)
+#[allow(clippy::too_many_arguments)]
 fn execute_digest_claude(
     app: &AppHandle,
     prompt: &str,

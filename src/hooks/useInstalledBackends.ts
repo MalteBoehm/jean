@@ -1,7 +1,5 @@
 import { useMemo } from 'react'
-import { useClaudeCliStatus } from '@/services/claude-cli'
-import { useCodexCliStatus } from '@/services/codex-cli'
-import { useOpencodeCliStatus } from '@/services/opencode-cli'
+import { useAiProviderOverview } from '@/services/ai-provider'
 import type { CliBackend } from '@/types/preferences'
 
 /**
@@ -10,20 +8,22 @@ import type { CliBackend } from '@/types/preferences'
  */
 export function useInstalledBackends(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true
-  const claude = useClaudeCliStatus({ enabled })
-  const codex = useCodexCliStatus({ enabled })
-  const opencode = useOpencodeCliStatus({ enabled })
+  const overview = useAiProviderOverview({ enabled })
 
   const installedBackends = useMemo(() => {
     const backends: CliBackend[] = []
-    if (claude.data?.installed) backends.push('claude')
-    if (codex.data?.installed) backends.push('codex')
-    if (opencode.data?.installed) backends.push('opencode')
+    if (overview.data?.providers.claude.installed) backends.push('claude')
+    if (overview.data?.providers.codex.installed) backends.push('codex')
+    if (overview.data?.providers.opencode.installed) backends.push('opencode')
     return backends
-  }, [claude.data?.installed, codex.data?.installed, opencode.data?.installed])
+  }, [
+    overview.data?.providers.claude.installed,
+    overview.data?.providers.codex.installed,
+    overview.data?.providers.opencode.installed,
+  ])
 
   return {
     installedBackends,
-    isLoading: claude.isLoading || codex.isLoading || opencode.isLoading,
+    isLoading: overview.isLoading,
   }
 }

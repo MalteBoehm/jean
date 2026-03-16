@@ -7,6 +7,7 @@ use crate::claude_cli::resolve_cli_binary;
 use crate::platform::silent_command;
 use crate::projects::git;
 use crate::projects::storage::{load_projects_data, save_projects_data};
+use regex::Regex;
 
 use super::storage::with_sessions_mut;
 use crate::http_server::EmitExt;
@@ -82,6 +83,58 @@ struct NamingOutput {
     branch_name: Option<String>,
 }
 
+static ATTACHMENT_MARKER_RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    Regex::new(r"\[(?:Image attached|Text file attached|File):[^\]]*\]")
+        .expect("valid marker regex")
+});
+
+static ISSUE_OR_PR_NUMBER_RE: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+    Regex::new(r"(?i)(?:\b(?:issue|issues|pr|prs|pull request|pull requests)\s*#?\s*|#)(\d+)\b")
+        .expect("valid issue/pr regex")
+});
+
+const LEADING_STOPWORDS: &[&str] = &[
+    "a",
+    "add",
+    "an",
+    "branch",
+    "can",
+    "could",
+    "create",
+    "fix",
+    "for",
+    "follow",
+    "help",
+    "i",
+    "implement",
+    "investigate",
+    "into",
+    "issue",
+    "issues",
+    "me",
+    "name",
+    "need",
+    "on",
+    "please",
+    "pr",
+    "prs",
+    "pull",
+    "refactor",
+    "rename",
+    "request",
+    "requests",
+    "session",
+    "the",
+    "this",
+    "to",
+    "update",
+    "up",
+    "want",
+    "with",
+    "would",
+    "you",
+];
+
 /// Check if the message contains image attachments that require Read tool
 fn contains_image_attachment(message: &str) -> bool {
     message.contains("[Image attached:")
@@ -97,6 +150,122 @@ fn contains_text_attachment(message: &str) -> bool {
 /// Check if the message contains file mentions (@ mentions) that require Read tool
 fn contains_file_mention(message: &str) -> bool {
     message.contains("[File:") && message.contains("Use the Read tool to view this file]")
+}
+
+fn strip_marker_segments(text: &str) -> String {
+    ATTACHMENT_MARKER_RE.replace_all(text, " ").into_owned()
+}
+
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_words(seed: &str) -> Vec<String> {
+    let normalized: String = seed
+        .chars()
+        .map(|char| {
+            if char.is_alphanumeric() {
+                char.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    let mut words: Vec<String> = normalized.split_whitespace().map(str::to_string).collect();
+
+    while words
+        .first()
+        .is_some_and(|word| LEADING_STOPWORDS.contains(&word.as_str()))
+    {
+        words.remove(0);
+    }
+
+    words
+}
+
+fn sentence_case(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let mut chars = lower.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    format!("{}{}", first.to_uppercase(), chars.as_str())
+}
+
+pub(crate) fn extract_naming_seed(message: &str) -> String {
+    for line in message.lines() {
+        let cleaned = collapse_whitespace(&strip_marker_segments(line).replace('`', " "));
+        if cleaned.chars().any(|char| char.is_alphanumeric()) {
+            return cleaned;
+        }
+    }
+
+    let fallback = collapse_whitespace(&strip_marker_segments(message).replace('`', " "));
+    if fallback.chars().any(|char| char.is_alphanumeric()) {
+        fallback
+    } else {
+        String::new()
+    }
+}
+
+fn session_id_fallback(session_id: &str) -> String {
+    let suffix = session_id.chars().take(8).collect::<String>();
+    format!("session-{suffix}")
+}
+
+pub(crate) fn fallback_session_name(seed: &str, session_id: &str) -> String {
+    let words = extract_words(seed);
+    if words.is_empty() {
+        return session_id_fallback(session_id);
+    }
+
+    let candidate = words.into_iter().take(5).collect::<Vec<_>>().join(" ");
+    if candidate.is_empty() {
+        session_id_fallback(session_id)
+    } else {
+        sentence_case(&candidate)
+    }
+}
+
+pub(crate) fn fallback_branch_name(seed: &str, session_id: &str) -> String {
+    let number_prefix = ISSUE_OR_PR_NUMBER_RE
+        .captures(seed)
+        .and_then(|captures| captures.get(1))
+        .map(|capture| capture.as_str().to_string());
+
+    let without_number_refs = ISSUE_OR_PR_NUMBER_RE.replace_all(seed, " ").into_owned();
+    let words = extract_words(&without_number_refs);
+    let mut parts = Vec::new();
+
+    if let Some(prefix) = number_prefix {
+        parts.push(prefix);
+    }
+
+    parts.extend(words);
+
+    let mut branch = parts.join("-");
+    if branch.is_empty() {
+        branch = session_id_fallback(session_id);
+    }
+
+    let branch = branch
+        .chars()
+        .filter(|char| char.is_ascii_alphanumeric() || *char == '-')
+        .collect::<String>();
+    let branch = branch.trim_matches('-').to_string();
+
+    let mut truncated = if branch.len() > 50 {
+        branch[..50].trim_end_matches('-').to_string()
+    } else {
+        branch
+    };
+
+    if truncated.is_empty() {
+        truncated = session_id_fallback(session_id);
+    }
+
+    truncated
 }
 
 /// Extract a JSON object from text that may contain surrounding prose
@@ -296,8 +465,27 @@ fn extract_text_from_stream_json(output: &str) -> Result<String, String> {
     Ok(text_content.trim().to_string())
 }
 
-/// Generate names using Claude CLI
-fn generate_names(app: &AppHandle, request: &NamingRequest) -> Result<NamingOutput, String> {
+fn select_naming_provider(
+    app: &AppHandle,
+    request: &NamingRequest,
+) -> super::provider_status::AiProvider {
+    match super::commands::resolve_magic_prompt_backend(
+        app,
+        request.backend_override.as_deref(),
+        Some(&request.worktree_id),
+    ) {
+        super::types::Backend::Codex => super::provider_status::AiProvider::Codex,
+        super::types::Backend::Opencode => super::provider_status::AiProvider::Opencode,
+        super::types::Backend::Claude => super::provider_status::AiProvider::Claude,
+    }
+}
+
+/// Generate names using the selected provider.
+fn generate_names_with_provider(
+    app: &AppHandle,
+    request: &NamingRequest,
+    provider: super::provider_status::AiProvider,
+) -> Result<NamingOutput, String> {
     // Detect if attachments are present to enable Read tool
     let has_images = contains_image_attachment(&request.first_message);
     let has_text_files = contains_text_attachment(&request.first_message);
@@ -345,17 +533,10 @@ fn generate_names(app: &AppHandle, request: &NamingRequest) -> Result<NamingOutp
         (false, false, false) => base_prompt,
     };
 
-    // Per-operation backend > project/global default_backend
-    let backend = super::commands::resolve_magic_prompt_backend(
-        app,
-        request.backend_override.as_deref(),
-        Some(&request.worktree_id),
-    );
-
-    if backend == super::types::Backend::Opencode {
+    if provider == super::provider_status::AiProvider::Opencode {
         return generate_names_opencode(app, &prompt, &request.model, request);
     }
-    if backend == super::types::Backend::Codex {
+    if provider == super::provider_status::AiProvider::Codex {
         return generate_names_codex(app, &prompt, &request.model, request);
     }
 
@@ -794,6 +975,14 @@ fn validate_session_name(name: &str) -> Result<String, String> {
         return Err("CLI returned error message instead of session name".to_string());
     }
 
+    if name.starts_with("session-")
+        && name
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || char == '-')
+    {
+        return Ok(name.to_string());
+    }
+
     // Sanitize: keep only alphanumeric and spaces
     let sanitized: String = name
         .chars()
@@ -802,10 +991,10 @@ fn validate_session_name(name: &str) -> Result<String, String> {
 
     let sanitized: String = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
 
-    // Enforce word limit (4 words max)
+    // Enforce word limit (5 words max)
     let words: Vec<&str> = sanitized.split_whitespace().collect();
-    let final_name = if words.len() > 6 {
-        words[..6].join(" ")
+    let final_name = if words.len() > 5 {
+        words[..5].join(" ")
     } else {
         sanitized
     };
@@ -960,6 +1149,68 @@ fn apply_branch_name(
     })
 }
 
+fn apply_local_fallback_names(app: &AppHandle, request: &NamingRequest) {
+    let seed = extract_naming_seed(&request.first_message);
+
+    if request.generate_session_name {
+        let fallback_name = fallback_session_name(&seed, &request.session_id);
+        match validate_session_name(&fallback_name) {
+            Ok(validated_name) => match apply_session_name(app, request, &validated_name) {
+                Ok(result) => {
+                    log::trace!(
+                        "Session renamed locally from '{}' to '{}'",
+                        result.old_name,
+                        result.new_name
+                    );
+                    let _ = app.emit_all("session-renamed", &result);
+                }
+                Err(error) => {
+                    log::warn!("Local session naming failed: {}", error.error);
+                    let _ = app.emit_all("session-naming-failed", &error);
+                }
+            },
+            Err(error_message) => {
+                let error = NamingError {
+                    session_id: Some(request.session_id.clone()),
+                    worktree_id: request.worktree_id.clone(),
+                    error: error_message,
+                    stage: NamingStage::Validation,
+                };
+                let _ = app.emit_all("session-naming-failed", &error);
+            }
+        }
+    }
+
+    if request.generate_branch_name {
+        let fallback_name = fallback_branch_name(&seed, &request.session_id);
+        match validate_branch_name(&fallback_name) {
+            Ok(validated_name) => match apply_branch_name(app, request, &validated_name) {
+                Ok(result) => {
+                    log::trace!(
+                        "Branch renamed locally from '{}' to '{}'",
+                        result.old_branch,
+                        result.new_branch
+                    );
+                    let _ = app.emit_all("branch-renamed", &result);
+                }
+                Err(error) => {
+                    log::warn!("Local branch naming failed: {}", error.error);
+                    let _ = app.emit_all("branch-naming-failed", &error);
+                }
+            },
+            Err(error_message) => {
+                let error = NamingError {
+                    session_id: None,
+                    worktree_id: request.worktree_id.clone(),
+                    error: error_message,
+                    stage: NamingStage::Validation,
+                };
+                let _ = app.emit_all("branch-naming-failed", &error);
+            }
+        }
+    }
+}
+
 /// Execute the combined naming workflow
 fn execute_naming(app: &AppHandle, request: &NamingRequest) {
     // Skip if nothing to generate
@@ -967,8 +1218,20 @@ fn execute_naming(app: &AppHandle, request: &NamingRequest) {
         return;
     }
 
+    let provider = select_naming_provider(app, request);
+    let provider_status = super::provider_status::get_provider_status(app, provider);
+
+    if !provider_status.available {
+        log::info!(
+            "Naming provider {:?} is not available; using local fallback",
+            provider
+        );
+        apply_local_fallback_names(app, request);
+        return;
+    }
+
     // Generate names
-    let naming_result = match generate_names(app, request) {
+    let naming_result = match generate_names_with_provider(app, request, provider) {
         Ok(result) => result,
         Err(e) => {
             log::warn!("Naming generation failed: {e}");
@@ -1076,4 +1339,66 @@ pub fn spawn_naming_task(app: AppHandle, request: NamingRequest) {
     std::thread::spawn(move || {
         execute_naming(&app, &request);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_naming_seed, fallback_branch_name, fallback_session_name};
+
+    #[test]
+    fn falls_back_to_plain_text_session_name() {
+        let seed = extract_naming_seed("Please fix the login redirect loop in auth middleware");
+        assert_eq!(
+            fallback_session_name(&seed, "12345678-aaaa-bbbb-cccc"),
+            "Login redirect loop in auth"
+        );
+    }
+
+    #[test]
+    fn preserves_issue_and_pr_numbers_for_branch_names() {
+        let issue_seed = extract_naming_seed("Investigate issue #7904 login bug in auth flow");
+        assert_eq!(
+            fallback_branch_name(&issue_seed, "12345678-aaaa-bbbb-cccc"),
+            "7904-login-bug-in-auth-flow"
+        );
+
+        let pr_seed = extract_naming_seed("Follow up on PR #456 flaky dashboard tests");
+        assert_eq!(
+            fallback_branch_name(&pr_seed, "12345678-aaaa-bbbb-cccc"),
+            "456-flaky-dashboard-tests"
+        );
+    }
+
+    #[test]
+    fn strips_attachment_only_markers_from_seed() {
+        let seed = extract_naming_seed(
+            "[Image attached: /tmp/test.png - Use the Read tool to view this image]\n\nReview screenshot",
+        );
+        assert_eq!(seed, "Review screenshot");
+    }
+
+    #[test]
+    fn falls_back_to_session_id_for_attachment_only_messages() {
+        let seed = extract_naming_seed(
+            "[Text file attached: /tmp/test.txt - Use the Read tool to view this file]",
+        );
+        assert!(seed.is_empty());
+        assert_eq!(
+            fallback_session_name(&seed, "abcdef1234567890"),
+            "session-abcdef12"
+        );
+        assert_eq!(
+            fallback_branch_name(&seed, "abcdef1234567890"),
+            "session-abcdef12"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_session_id_for_empty_input() {
+        assert_eq!(extract_naming_seed("   \n  "), "");
+        assert_eq!(
+            fallback_session_name("", "1234567890abcdef"),
+            "session-12345678"
+        );
+    }
 }

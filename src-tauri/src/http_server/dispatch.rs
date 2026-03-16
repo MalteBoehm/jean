@@ -721,6 +721,11 @@ pub async fn dispatch_command(
                     .await?;
             to_value(result)
         }
+        "get_ai_provider_overview" => {
+            let worktree_id: Option<String> = field_opt(&args, "worktreeId", "worktree_id")?;
+            let result = crate::chat::get_ai_provider_overview(app.clone(), worktree_id).await?;
+            to_value(result)
+        }
         "create_session" => {
             let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
             let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
